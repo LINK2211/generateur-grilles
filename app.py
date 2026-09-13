@@ -204,10 +204,7 @@ def generer_grilles_dutel(
 def generer_matrice_bibd_equilibre(
     pool: List[int], nb_grilles: int = 20, seed: int = 42
 ) -> List[List[int]]:
-    """Moteur 4 : Génération par matrice équilibrée (BIBD / Gail Howard).
-
-    Minimise la variance d'apparition des paires (lambda-uniformité).
-    """
+    """Moteur 4 : Génération par matrice équilibrée (BIBD)."""
     random.seed(seed)
     numeros = sorted(list(set(pool)))
     if len(numeros) < 10:
@@ -246,10 +243,7 @@ def generer_grilles_esperance_mit(
     min_sum: int = 85,
     max_sum: int = 175,
 ) -> List[List[int]]:
-    """Moteur 5 : Arbitrage d'espérance mathématique & anti-partage (MIT).
-
-    Élimine les combinaisons surjouées par la masse (biais calendaires / réguliers).
-    """
+    """Moteur 5 : Arbitrage d'espérance mathématique & anti-partage (MIT)."""
     numeros = sorted(list(set(pool)))
     if len(numeros) < 10:
         return []
@@ -272,11 +266,9 @@ def generer_grilles_esperance_mit(
             continue
 
         if seuil_anti_partage:
-            # Éviter les grilles calendaires (la masse joue massivement <= 12 pour mois et <= 20)
             nb_bas = sum(1 for x in cand if x <= 12)
-            if nb_bas >= 7:  # Trop de numéros typiques de dates
+            if nb_bas >= 7:
                 continue
-            # Éviter les grilles à pas constant (ex: 2, 4, 6, 8...)
             differences = [cand[i + 1] - cand[i] for i in range(len(cand) - 1)]
             if len(set(differences)) <= 2:
                 continue
@@ -284,6 +276,35 @@ def generer_grilles_esperance_mit(
         valides.append(cand)
 
     return valides
+
+
+def calculer_esperance_hypergeometrique(taille_pool: int, gains_dict: dict, cout_ticket: float):
+    """Calcule l'espérance mathématique exacte d'une grille pour un pool de taille N."""
+    N = taille_pool
+    k_total = 10
+    total_combi = math.comb(N, k_total)
+
+    tableau_esperance = []
+    esperance_totale = 0.0
+
+    for rang in range(6, 11):
+        gain = gains_dict.get(rang, 0.0)
+        # Combinaisons gagnantes C(10, rang) * C(N-10, 10-rang)
+        combis_rang = math.comb(10, rang) * math.comb(N - 10, 10 - rang)
+        proba = combis_rang / total_combi
+        apport_esperance = proba * gain
+        esperance_totale += apport_esperance
+
+        tableau_esperance.append({
+            "Rang": f"{rang} Bons",
+            "Gain (€)": f"{gain:,.2f} €",
+            "Combinaisons": f"{combis_rang:,}",
+            "Probabilité": f"1 sur {int(round(1/proba)):,}" if proba > 0 else "0",
+            "Apport (€)": f"{apport_esperance:.4f} €"
+        })
+
+    esperance_nette = esperance_totale - cout_ticket
+    return tableau_esperance, esperance_totale, esperance_nette
 
 
 def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
@@ -653,12 +674,38 @@ with tab4:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 5 : ARBITRAGE & ESPÉRANCE (MIT / ROLL-DOWN)
+# ONGLET 5 : ARBITRAGE & ESPÉRANCE MULTI-RANGS (MODÈLE MIT / ROLL-DOWN)
 # ------------------------------------------------------------------------------
 with tab5:
-    st.header("Optimisation d'Espérance & Filtre Anti-Partage (MIT)")
-    st.caption("Élimine les combinaisons surjouées par la masse (dates de naissance, progressions arithmétiques) pour maximiser le gain net.")
+    st.header("Optimisation d'Espérance Mathématique Complète (Modèle MIT)")
+    st.caption("Calcul de l'espérance réelle sur TOUS les rangs (6 à 10) et filtrage anti-partage pour éviter de diviser le gain.")
 
+    # Section 1 : Barème des Gains du Jeu
+    st.subheader("1. Barème des gains & Coût")
+    col_g1, col_g2, col_g3, col_g4, col_g5, col_g6 = st.columns(6)
+    with col_g1:
+        gain_6 = st.number_input("Gain 6 Bons (€)", value=1.0, step=0.5)
+    with col_g2:
+        gain_7 = st.number_input("Gain 7 Bons (€)", value=7.0, step=1.0)
+    with col_g3:
+        gain_8 = st.number_input("Gain 8 Bons (€)", value=100.0, step=10.0)
+    with col_g4:
+        gain_9 = st.number_input("Gain 9 Bons (€)", value=500.0, step=50.0)
+    with col_g5:
+        gain_10 = st.number_input("Jackpot 10/10 (€)", value=200000.0, step=25000.0)
+    with col_g6:
+        prix_ticket = st.number_input("Prix du ticket (€)", value=2.0, step=0.5)
+
+    gains_config = {
+        6: gain_6,
+        7: gain_7,
+        8: gain_8,
+        9: gain_9,
+        10: gain_10
+    }
+
+    # Section 2 : Paramètres combinatoires & Anti-Partage
+    st.subheader("2. Paramètres de génération & Filtrage")
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
         pool_mit_input = st.text_input(
@@ -666,22 +713,45 @@ with tab5:
             "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
             key="pool_mit_in",
         )
-        nb_grilles_mit = st.number_input("Nombre de grilles :", value=15, min_value=1, max_value=100, key="nb_mit")
+        nb_grilles_mit = st.number_input("Nombre de grilles à générer :", value=15, min_value=1, max_value=200, key="nb_mit")
     with col_m2:
-        anti_partage = st.checkbox("Activer le filtre Anti-Calendrier (MIT)", value=True)
-        min_sum_mit = st.number_input("Somme mini", value=85, step=5)
-        max_sum_mit = st.number_input("Somme maxi", value=175, step=5)
+        anti_partage = st.checkbox(
+            "Filtre Anti-Partage MIT (élimine les dates et suites régulières)",
+            value=True,
+            help="Élimine les combinaisons contenant 7 chiffres ou plus <= 12, ainsi que les motifs à pas réguliers qui sont massivement joués par la masse."
+        )
+        min_sum_mit = st.number_input("Somme minimale", value=85, step=5)
+        max_sum_mit = st.number_input("Somme maximale", value=175, step=5)
     with col_m3:
-        st.markdown("**Simulateur Roll-Down (Espérance nette)**")
-        jackpot_estime = st.number_input("Jackpot estimé (€)", value=200000, step=50000)
-        cout_grille = st.number_input("Prix du ticket (€)", value=2.0, step=0.5)
+        pool_m_test = [int(x) for x in pool_mit_input.split() if x.isdigit()]
+        pool_m_test = sorted(list(set(pool_m_test)))
+        taille_p = len(pool_m_test) if len(pool_m_test) >= 10 else 25
+
+        # Calcul automatique du modèle d'espérance hypergéométrique
+        tableau_esp, esp_brute, esp_nette = calculer_esperance_hypergeometrique(
+            taille_pool=taille_p,
+            gains_dict=gains_config,
+            cout_ticket=prix_ticket
+        )
+        roi_pct = (esp_nette / prix_ticket) * 100
+
+        st.metric("Espérance Totale (Brute)", f"{esp_brute:.2f} € / ticket")
+        st.metric("Espérance Nette (Bénéfice/Perte)", f"{esp_nette:+.2f} €", delta=f"{roi_pct:+.1f}% ROI")
+
+    # Section 3 : Tableau d'arbitrage probabiliste du MIT
+    with st.expander("📈 Voir le tableau d'arbitrage probabiliste complet (Loi hypergéométrique)"):
+        st.table(pd.DataFrame(tableau_esp))
+        if esp_nette > 0:
+            st.success("🟢 Conditions de Roll-Down validées : L'espérance mathématique est POSITIVE sur ce pool !")
+        else:
+            st.info("ℹ️ Espérance négative classique : Nécessite une réduction combinatoire ou un jackpot supérieur pour être mathématiquement profitable.")
 
     if st.button("Générer les Grilles à Haute Espérance", type="primary"):
         pool_m = [int(x) for x in pool_mit_input.split() if x.isdigit()]
         pool_m = sorted(list(set(pool_m)))
 
         if len(pool_m) < 10:
-            st.error("Le pool doit contenir au minimum 10 numéros.")
+            st.error("Le pool doit contenir au minimum 10 numéros distincts.")
         else:
             with st.spinner("Filtrage par entropie et élimination des biais de foule..."):
                 grilles_mit = generer_grilles_esperance_mit(
@@ -694,12 +764,7 @@ with tab5:
 
             if grilles_mit:
                 st.session_state.grilles_actives = grilles_mit
-                total_combis = math.comb(len(pool_m), 10)
-                proba_jackpot = 1 / total_combis
-                esperance_brute = (jackpot_estime * proba_jackpot) - cout_grille
-
-                st.success(f"{len(grilles_mit)} grilles à forte entropie générées.")
-                st.info(f"Espérance théorique du jackpot sur le pool de {len(pool_m)} : {esperance_brute:+.2f} € / grille.")
+                st.success(f"{len(grilles_mit)} grilles à forte entropie et espérance optimisée générées.")
 
                 df_mit = pd.DataFrame(grilles_mit, columns=[f"N{i+1}" for i in range(10)])
                 df_mit.insert(0, "Grille", [f"G{i+1}" for i in range(len(grilles_mit))])
@@ -763,31 +828,46 @@ if st.session_state.grilles_actives:
             ]
             bilan = {k: scores.count(k) for k in range(0, 11)}
 
+            # Calcul du gain financier total réalisé lors de l'audit
+            gains_totaux = (
+                bilan.get(6, 0) * gain_6
+                + bilan.get(7, 0) * gain_7
+                + bilan.get(8, 0) * gain_8
+                + bilan.get(9, 0) * gain_9
+                + bilan.get(10, 0) * gain_10
+            )
+            mise_totale = nb_grilles * prix_ticket
+            benefice_net = gains_totaux - mise_totale
+
             m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("6 Bons", bilan.get(6, 0))
-            m2.metric("7 Bons", bilan.get(7, 0))
+            m1.metric("6 Bons (1€)", bilan.get(6, 0))
+            m2.metric("7 Bons (7€)", bilan.get(7, 0))
             label_obj = (
-                f"{seuil_objectif} Bons (Objectif)"
+                f"{seuil_objectif} Bons (Obj)"
                 if seuil_objectif not in [6, 7, 10]
                 else f"{seuil_objectif} Bons"
             )
             m3.metric(label_obj, bilan.get(seuil_objectif, 0))
-            m4.metric("9 Bons", bilan.get(9, 0))
-            m5.metric("10/10", bilan.get(10, 0))
+            m4.metric("9 Bons (500€)", bilan.get(9, 0))
+            m5.metric("10/10 (Jackpot)", bilan.get(10, 0))
 
-            total_succes = sum(bilan.get(k, 0) for k in range(seuil_objectif, 11))
-            if total_succes > 0:
-                pct = (total_succes / nb_grilles) * 100
-                st.success(
-                    f"🎯 Objectif atteint : {total_succes} grille(s) sur {nb_grilles} ({pct:.1f}%) ont au moins {seuil_objectif} bons numéros !"
-                )
-            else:
-                st.warning(f"Aucune grille n'atteint {seuil_objectif}/10 sur ce tirage.")
+            # Bilan Financier Réel
+            st.markdown("#### 💰 Bilan Financier Réel sur ce tirage")
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Mise Totale", f"{mise_totale:,.2f} €")
+            f2.metric("Gains Récoltés", f"{gains_totaux:,.2f} €")
+            f3.metric(
+                "Résultat Net",
+                f"{benefice_net:+,.2f} €",
+                delta="Bénéfice" if benefice_net >= 0 else "Déficit"
+            )
 
             audit_rows = []
             for idx, g in enumerate(st.session_state.grilles_actives, 1):
                 communs = sorted(list(set(g).intersection(set_gagnante)))
                 score_grille = len(communs)
+                gain_ligne = gains_config.get(score_grille, 0.0)
+
                 statut = (
                     f"GAGNANT (≥{seuil_objectif})"
                     if score_grille >= seuil_objectif
@@ -798,6 +878,7 @@ if st.session_state.grilles_actives:
                 for num_i, val in enumerate(g, 1):
                     row_dict[f"N{num_i}"] = val
                 row_dict["Score"] = score_grille
+                row_dict["Gain (€)"] = f"{gain_ligne:,.2f} €"
                 row_dict["Numéros Trouvés"] = (
                     ", ".join(str(x) for x in communs) if communs else ""
                 )
