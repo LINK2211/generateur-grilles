@@ -195,7 +195,7 @@ def filtrer_combinaison_delta(
     comb, min_petits_deltas=6, max_delta_val=5, min_somme=80, max_somme=180
 ):
     s = sum(comb)
-    if s < min_sum or s > max_somme:
+    if s < min_somme or s > max_somme:
         return False
     deltas = [comb[i + 1] - comb[i] for i in range(len(comb) - 1)]
     petits_deltas = sum(1 for d in deltas if d <= 3)
@@ -453,7 +453,7 @@ def convert_df_to_csv(df):
 
 
 # ==============================================================================
-# INTERFACE UTILISATEUR
+# INTERFACE UTILISATEUR : ONGLETS ORDONNÉS
 # ==============================================================================
 
 st.title("Système de Génération & Réduction Mathématique")
@@ -464,9 +464,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
         "3. Théorie Marie Dutel",
         "4. Système Delta",
         "5. Terminaisons (Mod 10)",
-        "6. Centre / Périphérie",
-        "7. Matrices BIBD",
-        "8. Arbitrage & Espérance MIT",
+        "6. Arbitrage & Espérance MIT",
+        "7. Centre / Périphérie",
+        "8. Matrices BIBD",
     ]
 )
 
@@ -992,151 +992,9 @@ with tab5:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 6 : SYMÉTRIE CENTRE / PÉRIPHÉRIE
+# ONGLET 6 : ARBITRAGE & ESPÉRANCE MULTI-RANGS (MODÈLE MIT / ROLL-DOWN)
 # ------------------------------------------------------------------------------
 with tab6:
-    st.header("Symétrie Centre / Périphérie (Distribution Quadratique)")
-    st.caption(
-        "Équilibre entre le cœur numérique [8 à 18] et les deux bordures [1 à 7] et [19 à 25]."
-    )
-
-    col_cp1, col_cp2 = st.columns(2)
-    with col_cp1:
-        pool_cp_input = st.text_input(
-            "Pool sélectionné :",
-            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
-            key="pool_cp_in",
-        )
-        nb_grilles_cp = st.number_input(
-            "Nombre de grilles :",
-            value=15,
-            min_value=1,
-            max_value=200,
-            key="nb_cp",
-        )
-
-    with col_cp2:
-        range_centre = st.slider(
-            "Nombre de numéros centraux [8-18] tolérés :",
-            min_value=1,
-            max_value=9,
-            value=(4, 6),
-            help="Idéalement entre 4 et 6 numéros centraux sur 10.",
-        )
-
-    if st.button("Générer selon la Symétrie Centre/Périphérie", type="primary"):
-        pool_cp = [int(x) for x in pool_cp_input.split() if x.isdigit()]
-        pool_cp = sorted(list(set(pool_cp)))
-
-        if len(pool_cp) < 10:
-            st.error("Le pool doit comporter au moins 10 numéros.")
-        else:
-            with st.spinner("Application du filtre spatial..."):
-                grilles_cp = generer_grilles_centre_periph(
-                    numeros_base=pool_cp,
-                    nb_a_generer=nb_grilles_cp,
-                    min_centre=range_centre[0],
-                    max_centre=range_centre[1],
-                )
-
-            if grilles_cp:
-                st.session_state.grilles_actives = grilles_cp
-                st.success(
-                    f"{len(grilles_cp)} grilles équilibrées centre/périphérie générées."
-                )
-
-                df_cp = pd.DataFrame(
-                    grilles_cp, columns=[f"N{i+1}" for i in range(10)]
-                )
-                df_cp.insert(
-                    0, "Grille", [f"G{i+1}" for i in range(len(grilles_cp))]
-                )
-                df_cp["Centraux [8-18]"] = [
-                    sum(1 for x in g if 8 <= x <= 18) for g in grilles_cp
-                ]
-                df_cp["Périphérie"] = [10 - c for c in df_cp["Centraux [8-18]"]]
-                df_cp["Somme"] = [sum(g) for g in grilles_cp]
-
-                st.dataframe(df_cp, use_container_width=True)
-                st.download_button(
-                    "📥 Exporter les grilles Centre/Périphérie en Excel (.xlsx)",
-                    convert_df_to_excel(df_cp, sheet_name="Centre_Periph"),
-                    "grilles_centre_peripherie.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_t_cp",
-                )
-
-# ------------------------------------------------------------------------------
-# ONGLET 7 : MATRICES ÉQUILIBRÉES (BIBD / GAIL HOWARD)
-# ------------------------------------------------------------------------------
-with tab7:
-    st.header("Matrices de Blocs Incomplets Équilibrés (BIBD)")
-    st.caption(
-        "Minimise la variance spatiale : chaque paire de numéros est représentée un nombre égal de fois."
-    )
-
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        pool_bibd_input = st.text_input(
-            "Pool pour matrice équilibrée :",
-            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
-            key="pool_bibd_in",
-        )
-    with col_b2:
-        nb_grilles_bibd = st.slider(
-            "Nombre de blocs (grilles) :", min_value=5, max_value=50, value=20
-        )
-
-    if st.button("Générer la Matrice Équilibrée BIBD", type="primary"):
-        pool_b = [int(x) for x in pool_bibd_input.split() if x.isdigit()]
-        pool_b = sorted(list(set(pool_b)))
-
-        if len(pool_b) < 10:
-            st.error("Le pool doit contenir au minimum 10 numéros.")
-        else:
-            with st.spinner(
-                "Construction factorielle et équilibrage des paires..."
-            ):
-                grilles_bibd = generer_matrice_bibd_equilibre(
-                    pool=pool_b, nb_grilles=nb_grilles_bibd
-                )
-
-            if grilles_bibd:
-                st.session_state.grilles_actives = grilles_bibd
-                st.success(
-                    f"Matrice BIBD générée : {len(grilles_bibd)} grilles à couverture harmonique."
-                )
-
-                df_bibd = pd.DataFrame(
-                    grilles_bibd, columns=[f"N{i+1}" for i in range(10)]
-                )
-                df_bibd.insert(
-                    0, "Grille", [f"G{i+1}" for i in range(len(grilles_bibd))]
-                )
-                df_bibd["Somme"] = [sum(g) for g in grilles_bibd]
-                df_bibd["G1 [1-9]"] = [
-                    sum(1 for x in g if 1 <= x <= 9) for g in grilles_bibd
-                ]
-                df_bibd["G2 [10-19]"] = [
-                    sum(1 for x in g if 10 <= x <= 19) for g in grilles_bibd
-                ]
-                df_bibd["G3 [20-25]"] = [
-                    sum(1 for x in g if 20 <= x <= 25) for g in grilles_bibd
-                ]
-
-                st.dataframe(df_bibd, use_container_width=True)
-                st.download_button(
-                    "📥 Exporter la matrice BIBD en Excel (.xlsx)",
-                    convert_df_to_excel(df_bibd, sheet_name="Matrice_BIBD"),
-                    "matrice_equilibree_bibd.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_t_bibd",
-                )
-
-# ------------------------------------------------------------------------------
-# ONGLET 8 : ARBITRAGE & ESPÉRANCE MULTI-RANGS (MODÈLE MIT / ROLL-DOWN)
-# ------------------------------------------------------------------------------
-with tab8:
     st.header("Optimisation d'Espérance Mathématique Complète (Modèle MIT)")
     st.caption(
         "Calcul de l'espérance réelle sur TOUS les rangs (6 à 10) et filtrage anti-partage."
@@ -1257,6 +1115,148 @@ with tab8:
                     "grilles_modele_mit.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_t_mit",
+                )
+
+# ------------------------------------------------------------------------------
+# ONGLET 7 : SYMÉTRIE CENTRE / PÉRIPHÉRIE (AVANT-DERNIER)
+# ------------------------------------------------------------------------------
+with tab7:
+    st.header("Symétrie Centre / Périphérie (Distribution Quadratique)")
+    st.caption(
+        "Équilibre entre le cœur numérique [8 à 18] et les deux bordures [1 à 7] et [19 à 25]."
+    )
+
+    col_cp1, col_cp2 = st.columns(2)
+    with col_cp1:
+        pool_cp_input = st.text_input(
+            "Pool sélectionné :",
+            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
+            key="pool_cp_in",
+        )
+        nb_grilles_cp = st.number_input(
+            "Nombre de grilles :",
+            value=15,
+            min_value=1,
+            max_value=200,
+            key="nb_cp",
+        )
+
+    with col_cp2:
+        range_centre = st.slider(
+            "Nombre de numéros centraux [8-18] tolérés :",
+            min_value=1,
+            max_value=9,
+            value=(4, 6),
+            help="Idéalement entre 4 et 6 numéros centraux sur 10.",
+        )
+
+    if st.button("Générer selon la Symétrie Centre/Périphérie", type="primary"):
+        pool_cp = [int(x) for x in pool_cp_input.split() if x.isdigit()]
+        pool_cp = sorted(list(set(pool_cp)))
+
+        if len(pool_cp) < 10:
+            st.error("Le pool doit comporter au moins 10 numéros.")
+        else:
+            with st.spinner("Application du filtre spatial..."):
+                grilles_cp = generer_grilles_centre_periph(
+                    numeros_base=pool_cp,
+                    nb_a_generer=nb_grilles_cp,
+                    min_centre=range_centre[0],
+                    max_centre=range_centre[1],
+                )
+
+            if grilles_cp:
+                st.session_state.grilles_actives = grilles_cp
+                st.success(
+                    f"{len(grilles_cp)} grilles équilibrées centre/périphérie générées."
+                )
+
+                df_cp = pd.DataFrame(
+                    grilles_cp, columns=[f"N{i+1}" for i in range(10)]
+                )
+                df_cp.insert(
+                    0, "Grille", [f"G{i+1}" for i in range(len(grilles_cp))]
+                )
+                df_cp["Centraux [8-18]"] = [
+                    sum(1 for x in g if 8 <= x <= 18) for g in grilles_cp
+                ]
+                df_cp["Périphérie"] = [10 - c for c in df_cp["Centraux [8-18]"]]
+                df_cp["Somme"] = [sum(g) for g in grilles_cp]
+
+                st.dataframe(df_cp, use_container_width=True)
+                st.download_button(
+                    "📥 Exporter les grilles Centre/Périphérie en Excel (.xlsx)",
+                    convert_df_to_excel(df_cp, sheet_name="Centre_Periph"),
+                    "grilles_centre_peripherie.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_t_cp",
+                )
+
+# ------------------------------------------------------------------------------
+# ONGLET 8 : MATRICES ÉQUILIBRÉES BIBD (DERNIER)
+# ------------------------------------------------------------------------------
+with tab8:
+    st.header("Matrices de Blocs Incomplets Équilibrés (BIBD)")
+    st.caption(
+        "Minimise la variance spatiale : chaque paire de numéros est représentée un nombre égal de fois."
+    )
+
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        pool_bibd_input = st.text_input(
+            "Pool pour matrice équilibrée :",
+            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
+            key="pool_bibd_in",
+        )
+    with col_b2:
+        nb_grilles_bibd = st.slider(
+            "Nombre de blocs (grilles) :", min_value=5, max_value=50, value=20
+        )
+
+    if st.button("Générer la Matrice Équilibrée BIBD", type="primary"):
+        pool_b = [int(x) for x in pool_bibd_input.split() if x.isdigit()]
+        pool_b = sorted(list(set(pool_b)))
+
+        if len(pool_b) < 10:
+            st.error("Le pool doit contenir au minimum 10 numéros.")
+        else:
+            with st.spinner(
+                "Construction factorielle et équilibrage des paires..."
+            ):
+                grilles_bibd = generer_matrice_bibd_equilibre(
+                    pool=pool_b, nb_grilles=nb_grilles_bibd
+                )
+
+            if grilles_bibd:
+                st.session_state.grilles_actives = grilles_bibd
+                st.success(
+                    f"Matrice BIBD générée : {len(grilles_bibd)} grilles à couverture harmonique."
+                )
+
+                df_bibd = pd.DataFrame(
+                    grilles_bibd, columns=[f"N{i+1}" for i in range(10)]
+                )
+                df_bibd.insert(
+                    0, "Grille", [f"G{i+1}" for i in range(len(grilles_bibd))]
+                )
+                df_bibd["Somme"] = [sum(g) for g in grilles_bibd]
+                df_bibd["G1 [1-9]"] = [
+                    sum(1 for x in g if 1 <= x <= 9) for g in grilles_bibd
+                ]
+                df_bibd["G2 [10-19]"] = [
+                    sum(1 for x in g if 10 <= x <= 19) for g in grilles_bibd
+                ]
+                df_bibd["G3 [20-25]"] = [
+                    sum(1 for x in g if 20 <= x <= 25) for g in grilles_bibd
+                ]
+
+                st.dataframe(df_bibd, use_container_width=True)
+                st.download_button(
+                    "📥 Exporter la matrice BIBD en Excel (.xlsx)",
+                    convert_df_to_excel(df_bibd, sheet_name="Matrice_BIBD"),
+                    "matrice_equilibree_bibd.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_t_bibd",
                 )
 
 # ==============================================================================
