@@ -1,7 +1,7 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Nom de Ton Application",
+    page_title="generateur",
     page_icon="🚀",
     layout="centered"  # ou "wide"
 )
