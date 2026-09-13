@@ -1,5 +1,6 @@
 import io
 import itertools
+import math
 import random
 from typing import List
 import numpy as np
@@ -15,6 +16,7 @@ if "grilles_actives" not in st.session_state:
     st.session_state.grilles_actives = None
 
 pool_global = list(range(1, 26))
+MAX_EXCEL_ROWS = 1048500
 
 # ==============================================================================
 # FONCTIONS LOGIQUES ET ALGORITHMES
@@ -39,67 +41,56 @@ def verifier_contraintes_decades(combi, min_g1=2, min_g2=2):
     return (g1 >= min_g1) and (g2 >= min_g2)
 
 
-def generer_grilles_selectives(
+def analyser_et_filtrer_univers(
     pool: List[int],
     base_initiale: List[int],
-    nb_grilles: int = 15,
     forcer_base: bool = True,
     min_sum: int = 80,
     max_sum: int = 180,
     cible_10: int = -1,
     cible_20: int = -1,
     forcer_decades: bool = True,
-) -> List[List[int]]:
-    """Moteur 1 : génération sélective sous filtres empiriques."""
-    g1 = [x for x in pool if 1 <= x <= 9]
-    g2 = [x for x in pool if 10 <= x <= 19]
+):
+    """Parcourt l'espace combinatoire pour dénombrer précisément :
+
+    - Le total des combinaisons théoriques C(N, 10)
+    - Les combinaisons validées par les filtres
+    - Les combinaisons éliminées
+    """
+    total_theorique = math.comb(len(pool), 10)
     base_set = set(base_initiale) if base_initiale else set()
 
-    if forcer_decades and (len(g1) < 2 or len(g2) < 2):
-        return []
+    valides = []
 
-    grilles = []
-    seen = set()
-    attempts = 0
-    max_attempts = 40000
-
-    while len(grilles) < nb_grilles and attempts < max_attempts:
-        attempts += 1
-        ticket = set()
-
-        if forcer_decades:
-            k1 = random.choice([2, 3]) if len(g1) >= 3 else 2
-            k2 = random.choice([2, 3]) if len(g2) >= 3 else 2
-            ticket.update(random.sample(g1, k1))
-            ticket.update(random.sample(g2, k2))
-
-        rest_pool = [x for x in pool if x not in ticket]
-        needed = 10 - len(ticket)
-        if len(rest_pool) < needed:
-            continue
-        ticket.update(random.sample(rest_pool, needed))
-
-        combi = sorted(list(ticket))
-
-        somme_combi = sum(combi)
-        if somme_combi < min_sum or (max_sum > 0 and somme_combi > max_sum):
+    for combi in itertools.combinations(pool, 10):
+        # 1. Filtre décades Mandel
+        if forcer_decades and not verifier_contraintes_decades(
+            combi, min_g1=2, min_g2=2
+        ):
             continue
 
+        # 2. Somme
+        s = sum(combi)
+        if s < min_sum or (max_sum > 0 and s > max_sum):
+            continue
+
+        # 3. Ancrage base
         if forcer_base and len(set(combi).intersection(base_set)) < 3:
             continue
 
+        # 4. Filtre dizaines (10-19)
         if cible_10 != -1 and sum(1 for x in combi if 10 <= x <= 19) != cible_10:
             continue
 
+        # 5. Filtre vingtaines (20-25)
         if cible_20 != -1 and sum(1 for x in combi if 20 <= x <= 25) != cible_20:
             continue
 
-        ticket_tuple = tuple(combi)
-        if ticket_tuple not in seen:
-            seen.add(ticket_tuple)
-            grilles.append(combi)
+        valides.append(list(combi))
 
-    return grilles
+    nb_valides = len(valides)
+    nb_eliminees = total_theorique - nb_valides
+    return total_theorique, nb_valides, nb_eliminees, valides
 
 
 def algorithme_glouton_mandel(
@@ -155,9 +146,6 @@ def algorithme_glouton_mandel(
     return grilles_retenues
 
 
-# ------------------------------------------------------------------------------
-# MOTEUR 3 : THÉORIE MARIE DUTEL
-# ------------------------------------------------------------------------------
 def filtrer_combinaison_dutel(
     comb,
     min_somme=None,
@@ -168,19 +156,16 @@ def filtrer_combinaison_dutel(
     max_pairs=6,
 ):
     """Vérifie si une combinaison respecte les filtres statistiques de Marie Dutel."""
-    # 1. Équilibre Pairs / Impairs
     pairs = sum(1 for x in comb if x % 2 == 0)
     if pairs < min_pairs or pairs > max_pairs:
         return False
 
-    # 2. Somme totale
     somme = sum(comb)
     if min_somme is not None and somme < min_somme:
         return False
     if max_somme is not None and somme > max_somme:
         return False
 
-    # 3. Suites consécutives
     consecutifs = 1
     for i in range(len(comb) - 1):
         if comb[i + 1] == comb[i] + 1:
@@ -190,7 +175,6 @@ def filtrer_combinaison_dutel(
         else:
             consecutifs = 1
 
-    # 4. Dispersion par dizaine
     dizaines = {}
     for x in comb:
         d = x // 10
@@ -213,7 +197,6 @@ def generer_grilles_dutel(
     if len(numeros) < 10:
         return [], 0, 0
 
-    # Calibration de la fourchette gaussienne de somme
     somme_min_possible = sum(numeros[:10])
     somme_max_possible = sum(numeros[-10:])
     moyenne_somme = (somme_min_possible + somme_max_possible) / 2
@@ -227,7 +210,6 @@ def generer_grilles_dutel(
     attempts = 0
     max_attempts = 50000
 
-    # Si le pool est petit, on explore exhaustivement ; sinon, tirage aléatoire contrôlé
     if len(numeros) <= 15:
         toutes_combs = list(itertools.combinations(numeros, 10))
         random.shuffle(toutes_combs)
@@ -283,13 +265,19 @@ def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
 def convert_df_to_excel(df, sheet_name="Grilles"):
     """Exporte un DataFrame propre en Excel avec colonnes auto-dimensionnées."""
     output = io.BytesIO()
+    df_export = df.iloc[:MAX_EXCEL_ROWS] if len(df) > MAX_EXCEL_ROWS else df
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        df_export.to_excel(writer, index=False, sheet_name=sheet_name)
         worksheet = writer.sheets[sheet_name]
-        for idx, col in enumerate(df.columns):
-            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
+        for idx, col in enumerate(df_export.columns):
+            max_len = max(df_export[col].astype(str).map(len).max(), len(str(col))) + 2
             worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
+
+
+def convert_df_to_csv(df):
+    """Export CSV sans limitation de lignes."""
+    return df.to_csv(index=False).encode("utf-8")
 
 
 # ==============================================================================
@@ -299,17 +287,17 @@ def convert_df_to_excel(df, sheet_name="Grilles"):
 st.title("Système de Génération & Réduction Mathématique")
 tab1, tab2, tab3 = st.tabs(
     [
-        "Moteur 1 : Filtrage Empirique",
+        "Moteur 1 : Filtrage Empirique & Analyse",
         "Moteur 2 : Système Réducteur Mandel",
         "Moteur 3 : Théorie Marie Dutel",
     ]
 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 1 : FILTRAGE EMPIRIQUE
+# ONGLET 1 : FILTRAGE EMPIRIQUE & COMPTAGE D'ÉLAGAGE
 # ------------------------------------------------------------------------------
 with tab1:
-    st.header("Filtrage par Hypothèses et Limites")
+    st.header("Filtrage par Hypothèses & Audit Combinatoire")
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -324,8 +312,19 @@ with tab1:
     with col2:
         min_sum = st.number_input("Plancher de somme", value=80, step=10)
         max_sum = st.number_input("Plafond de somme", value=180, step=10)
+        
+        # Choix du mode d'export
+        mode_generation = st.radio(
+            "Mode de génération :",
+            ["Générer un nombre précis (Échantillon)", "Tout générer (Toutes les combinaisons valides)"],
+            index=0
+        )
         nb_grilles_demande = st.number_input(
-            "Nombre de grilles à générer", value=20, min_value=1, max_value=200
+            "Nombre de grilles à retenir",
+            value=20,
+            min_value=1,
+            max_value=10000,
+            disabled=(mode_generation == "Tout générer")
         )
 
     with col3:
@@ -352,7 +351,7 @@ with tab1:
         key="hist_t1",
     )
 
-    if st.button("Générer les Grilles Sélectives", type="primary"):
+    if st.button("Lancer l'Analyse & la Génération", type="primary"):
         base_liste = [int(x) for x in base_input.split() if x.isdigit()]
 
         sous_pool = preparer_pool(base_liste)
@@ -362,14 +361,10 @@ with tab1:
 
         st.info(f"Pool final de travail : {pool_final} ({len(pool_final)} numéros)")
 
-        with st.spinner("Génération sélective des grilles..."):
-            quota_recherche = (
-                nb_grilles_demande * 4 if fichier_historique else nb_grilles_demande
-            )
-            grilles_brutes = generer_grilles_selectives(
+        with st.spinner("Analyse combinatoire et application des filtres..."):
+            total_theorique, nb_valides, nb_eliminees, grilles_valides = analyser_et_filtrer_univers(
                 pool=pool_final,
                 base_initiale=base_liste,
-                nb_grilles=quota_recherche,
                 forcer_base=forcer_base,
                 min_sum=min_sum,
                 max_sum=max_sum,
@@ -378,8 +373,18 @@ with tab1:
                 forcer_decades=forcer_decades_t1,
             )
 
+        # 1. Affichage des Métriques de comptage demandées
+        st.markdown("### 📊 Rapport d'élagage combinatoire")
+        m_tot, m_val, m_elim, m_pct = st.columns(4)
+        m_tot.metric("Total Théorique C(N, 10)", f"{total_theorique:,}")
+        m_val.metric("Grilles Conformes", f"{nb_valides:,}")
+        m_elim.metric("Grilles Éliminées", f"{nb_eliminees:,}")
+        taux_elagage = (nb_eliminees / total_theorique * 100) if total_theorique > 0 else 0
+        m_pct.metric("Taux d'élimination", f"{taux_elagage:.2f} %")
+
+        # 2. Filtrage par historique si fourni
         historiques = []
-        if fichier_historique and grilles_brutes:
+        if fichier_historique and grilles_valides:
             df_hist = (
                 pd.read_csv(fichier_historique)
                 if fichier_historique.name.endswith(".csv")
@@ -387,16 +392,27 @@ with tab1:
             )
             df_propre = df_hist.iloc[:, :10].dropna()
             historiques = df_propre.astype(int).values.tolist()
-            grilles_filtrees = filtrer_par_historique(
-                grilles_brutes, historiques, seuil_exclu
-            )
-            grilles_finales = grilles_filtrees[:nb_grilles_demande]
+            with st.spinner("Application du filtre d'historique matriciel..."):
+                grilles_valides = filtrer_par_historique(
+                    grilles_valides, historiques, seuil_exclu
+                )
+            st.write(f"**Après filtre historique :** {len(grilles_valides):,} grilles restantes.")
+
+        # 3. Application du choix de l'utilisateur (tout générer vs échantillon)
+        if mode_generation == "Générer un nombre précis (Échantillon)":
+            # Si on demande moins que le total disponible, on prend les N premières (ou aléatoire)
+            if len(grilles_valides) > nb_grilles_demande:
+                grilles_finales = random.sample(grilles_valides, nb_grilles_demande)
+            else:
+                grilles_finales = grilles_valides
         else:
-            grilles_finales = grilles_brutes[:nb_grilles_demande]
+            grilles_finales = grilles_valides
 
         if grilles_finales:
             st.session_state.grilles_actives = grilles_finales
-            st.success(f"{len(grilles_finales)} grilles conformes générées.")
+            st.success(
+                f"**{len(grilles_finales):,} grille(s)** retenue(s) et chargée(s) en mémoire pour l'audit."
+            )
 
             df_results = pd.DataFrame(
                 grilles_finales, columns=[f"N{i+1}" for i in range(10)]
@@ -407,17 +423,33 @@ with tab1:
             df_results["G2 [10-19]"] = [sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales]
             df_results["G3 [20-25]"] = [sum(1 for x in g if 20 <= x <= 25) for g in grilles_finales]
 
-            st.dataframe(df_results, use_container_width=True)
+            # Affichage limité aux 1000 premières pour préserver la fluidité Streamlit
+            st.dataframe(df_results.head(1000), use_container_width=True)
+            if len(df_results) > 1000:
+                st.caption(f"Aperçu limité aux 1 000 premières lignes sur {len(df_results):,}. Les fichiers téléchargés contiennent 100% des grilles.")
 
-            st.download_button(
-                label="📥 Exporter en fichier Excel (.xlsx)",
-                data=convert_df_to_excel(df_results, sheet_name="Grilles_Empiriques"),
-                file_name="grilles_empiriques.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_t1",
-            )
+            # Boutons de téléchargement
+            cd1, cd2 = st.columns(2)
+            with cd1:
+                st.download_button(
+                    label="📥 Télécharger toutes les grilles (CSV)",
+                    data=convert_df_to_csv(df_results),
+                    file_name="grilles_empiriques.csv",
+                    mime="text/csv",
+                    key="dl_t1_csv",
+                )
+            with cd2:
+                if len(df_results) > MAX_EXCEL_ROWS:
+                    st.warning("Volume > 1 048 500 lignes : le fichier Excel sera tronqué à la limite légale d'Excel. Utilise le CSV.")
+                st.download_button(
+                    label="📥 Télécharger en Excel (.xlsx)",
+                    data=convert_df_to_excel(df_results, sheet_name="Grilles"),
+                    file_name="grilles_empiriques.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_t1_excel",
+                )
         else:
-            st.warning("Aucune grille trouvée avec ces contraintes.")
+            st.warning("Aucune grille ne respecte l'ensemble de ces filtres combinatoires.")
 
 # ------------------------------------------------------------------------------
 # ONGLET 2 : SYSTÈME RÉDUCTEUR MANDEL
