@@ -15,6 +15,9 @@ if "grilles_actives" not in st.session_state:
 
 pool_global = list(range(1, 26))
 
+# Limite technique stricte du format Excel (.xlsx)
+MAX_EXCEL_ROWS = 1048500
+
 # ==============================================================================
 # FONCTIONS LOGIQUES ET ALGORITHMES
 # ==============================================================================
@@ -100,21 +103,17 @@ def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
     if not historiques or not grilles:
         return grilles
 
-    # Matrice binaire de l'historique (N_lignes x 26)
     H = np.zeros((len(historiques), 26), dtype=np.int8)
     for i, hist in enumerate(historiques):
         H[i, list(hist)] = 1
 
-    # Matrice binaire des grilles candidates (M_lignes x 26)
     G = np.zeros((len(grilles), 26), dtype=np.int8)
     for j, g in enumerate(grilles):
         G[j, list(g)] = 1
 
-    # Produit matriciel : calcul vectoriel du nombre d'intersections communes
     intersections = np.dot(G, H.T)
     max_communs = np.max(intersections, axis=1)
 
-    # Conservation des grilles strictement inférieures ou égales au seuil
     index_valides = np.where(max_communs <= seuil_exclusion)[0]
     return [grilles[idx] for idx in index_valides]
 
@@ -122,14 +121,9 @@ def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
 def algorithme_glouton_reducteur(
     pool, taille_grille=10, garantie=8, filtrer_mandel=True, max_grilles=40
 ):
-    """Algorithme de couverture glouton (Greedy Set Cover / Condensation Mandel)
-
-    Construit un système réduit couvrant les sous-ensembles requis tout en
-    respectant les contraintes structurelles.
-    """
+    """Algorithme de couverture glouton (Greedy Set Cover / Condensation Mandel)."""
     candidats = list(itertools.combinations(pool, taille_grille))
 
-    # Filtrage préalable Mandel pour ne retenir que des grilles admissibles
     if filtrer_mandel:
         candidats = [
             c
@@ -140,7 +134,6 @@ def algorithme_glouton_reducteur(
     if not candidats:
         return []
 
-    # Sous-ensembles cibles à couvrir (8-uplets par défaut)
     tous_subsets = list(itertools.combinations(pool, garantie))
     if len(tous_subsets) > 15000:
         sous_ensembles_a_couvrir = set(tous_subsets[:15000])
@@ -162,7 +155,6 @@ def algorithme_glouton_reducteur(
                 meilleure_grille = combi
 
         if not meilleure_grille or len(max_couverts) == 0:
-            # Si plus de gain marginal mais qu'on veut compléter
             if candidats and len(grilles_retenues) < 15:
                 grilles_retenues.append(candidats.pop(0))
                 continue
@@ -183,10 +175,17 @@ def evaluer_gains(grilles, tirage_test):
 
 
 def convert_df_to_excel(df):
+    """Génère l'export Excel en protégeant contre le dépassement des 1 048 576 lignes."""
     output = io.BytesIO()
+    df_export = df.iloc[:MAX_EXCEL_ROWS] if len(df) > MAX_EXCEL_ROWS else df
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Grilles")
+        df_export.to_excel(writer, index=False, sheet_name="Grilles")
     return output.getvalue()
+
+
+def convert_df_to_csv(df):
+    """Génère l'export CSV sans aucune contrainte de nombre de lignes."""
+    return df.to_csv(index=False).encode("utf-8")
 
 
 # ==============================================================================
@@ -300,12 +299,40 @@ with tab1:
             df_results["G2 [10-19]"] = [
                 sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales
             ]
-            st.dataframe(df_results)
-            st.download_button(
-                "Télécharger les grilles (Excel)",
-                convert_df_to_excel(df_results),
-                "grilles_empiriques.xlsx",
-            )
+
+            # Affichage allégé dans l'interface si le volume est colossal
+            st.dataframe(df_results.head(10000))
+            if len(df_results) > 10000:
+                st.caption(
+                    f"Affichage limité aux 10 000 premières grilles sur {len(df_results):,} pour préserver la fluidité."
+                )
+
+            # Gestion des boutons de téléchargement selon le volume
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.download_button(
+                    "Télécharger toutes les grilles (CSV)",
+                    convert_df_to_csv(df_results),
+                    "grilles_empiriques.csv",
+                    "text/csv",
+                )
+
+            with col_d2:
+                if len(df_results) > MAX_EXCEL_ROWS:
+                    st.warning(
+                        f"Le volume ({len(df_results):,} lignes) dépasse la limite Excel (1 048 576). Le fichier Excel sera tronqué à 1 048 500 lignes. Privilégie le format CSV."
+                    )
+                    st.download_button(
+                        "Télécharger (Excel tronqué)",
+                        convert_df_to_excel(df_results),
+                        "grilles_empiriques_tronque.xlsx",
+                    )
+                else:
+                    st.download_button(
+                        "Télécharger les grilles (Excel)",
+                        convert_df_to_excel(df_results),
+                        "grilles_empiriques.xlsx",
+                    )
         else:
             st.warning(
                 "Aucune grille ne respecte l'ensemble de ces contraintes."
@@ -378,11 +405,21 @@ with tab2:
                 sum(1 for x in g if 10 <= x <= 19) for g in grilles_reductrices
             ]
             st.dataframe(df_red)
-            st.download_button(
-                "Télécharger le système réduit (Excel)",
-                convert_df_to_excel(df_red),
-                "systeme_reduit.xlsx",
-            )
+
+            col_dr1, col_dr2 = st.columns(2)
+            with col_dr1:
+                st.download_button(
+                    "Télécharger (CSV)",
+                    convert_df_to_csv(df_red),
+                    "systeme_reduit.csv",
+                    "text/csv",
+                )
+            with col_dr2:
+                st.download_button(
+                    "Télécharger (Excel)",
+                    convert_df_to_excel(df_red),
+                    "systeme_reduit.xlsx",
+                )
 
 # ==============================================================================
 # MODULE DE VÉRIFICATION A POSTERIORI (AUDIT DU TIRAGE ET COMPARAISON)
@@ -410,7 +447,6 @@ if st.session_state.grilles_actives:
             int(x) for x in tirage_test_input.split() if x.isdigit()
         ]
 
-        # Validation d'intégrité
         if len(tirage_test) != 10:
             st.error("Erreur de format : saisis exactement 10 numéros.")
         elif len(set(tirage_test)) != 10:
@@ -444,10 +480,11 @@ if st.session_state.grilles_actives:
                     "Aucune grille n'atteint le seuil de 8/10 sur ce tirage spécifique."
                 )
 
-            # Détail visuel ligne par ligne avec coloration des correspondances
             st.markdown("#### Détail par grille")
             table_rows = []
-            for idx, g in enumerate(st.session_state.grilles_actives, 1):
+            # Pour l'audit visuel, on limite l'affichage aux 500 premières grilles si le volume est géant
+            audit_sample = st.session_state.grilles_actives[:500]
+            for idx, g in enumerate(audit_sample, 1):
                 communs = sorted(list(set(g).intersection(set_gagnante)))
                 c1 = sum(1 for x in g if 1 <= x <= 9)
                 c2 = sum(1 for x in g if 10 <= x <= 19)
@@ -469,6 +506,10 @@ if st.session_state.grilles_actives:
 
             df_detail = pd.DataFrame(table_rows)
             st.dataframe(df_detail, use_container_width=True)
+            if len(st.session_state.grilles_actives) > 500:
+                st.caption(
+                    f"Audit visuel détaillé sur les 500 premières grilles sur un total de {len(st.session_state.grilles_actives):,} (les métriques en haut couvrent 100% des grilles)."
+                )
 else:
     st.caption(
         "Génère d'abord des grilles dans l'un des deux onglets ci-dessus pour activer ce module."
