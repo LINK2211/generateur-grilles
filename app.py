@@ -190,7 +190,7 @@ def generer_grilles_dutel(
     return valides, borne_basse, borne_haute
 
 
-# --- SYSTÈME DELTA (NOUVEAU) ---
+# --- SYSTÈME DELTA ---
 def filtrer_combinaison_delta(
     comb, min_petits_deltas=6, max_delta_val=5, min_somme=80, max_somme=180
 ):
@@ -238,7 +238,7 @@ def generer_grilles_delta(
     return valides
 
 
-# --- TERMINAISONS / MODULO 10 (NOUVEAU) ---
+# --- TERMINAISONS / MODULO 10 ---
 def filtrer_combinaison_terminaisons(
     comb, min_uniques=6, max_uniques=8, max_repetition=3
 ):
@@ -282,9 +282,8 @@ def generer_grilles_terminaisons(
     return valides
 
 
-# --- CENTRE / PÉRIPHÉRIE (NOUVEAU) ---
+# --- CENTRE / PÉRIPHÉRIE ---
 def filtrer_combinaison_centre_periph(comb, min_centre=3, max_centre=6):
-    # Centre : [8 à 18] (11 numéros)
     centre = sum(1 for x in comb if 8 <= x <= 18)
     return min_centre <= centre <= max_centre
 
@@ -1158,7 +1157,7 @@ with tab8:
             "Jackpot 10/10 (€)", value=200000.0, step=25000.0
         )
     with col_g6:
-        prix_ticket = st.number_input("Prix du ticket (€)", value=2.0, step=0.5)
+        prix_ticket = st.number_input("Prix du ticket (€)", value=1.0, step=0.5)
 
     gains_config = {
         6: gain_6,
@@ -1306,7 +1305,7 @@ if st.session_state.grilles_actives:
             ]
             bilan = {k: scores.count(k) for k in range(0, 11)}
 
-            # Calculs financiers
+            # Calculs financiers basés sur 1.00 € par grille
             g_tot = (
                 bilan.get(6, 0) * 1.0
                 + bilan.get(7, 0) * 7.0
@@ -1314,7 +1313,7 @@ if st.session_state.grilles_actives:
                 + bilan.get(9, 0) * 500.0
                 + bilan.get(10, 0) * 200000.0
             )
-            mise_tot = nb_grilles * 2.0
+            mise_tot = nb_grilles * 1.0
             benef_net = g_tot - mise_tot
 
             m1, m2, m3, m4, m5 = st.columns(5)
@@ -1329,7 +1328,7 @@ if st.session_state.grilles_actives:
             m4.metric("9 Bons (500€)", bilan.get(9, 0))
             m5.metric("10/10 (Jackpot)", bilan.get(10, 0))
 
-            st.markdown("#### 💰 Bilan Financier Réel sur ce tirage (base 2 €/grille)")
+            st.markdown("#### 💰 Bilan Financier Réel sur ce tirage (base 1 €/grille)")
             f1, f2, f3 = st.columns(3)
             f1.metric("Mise Totale", f"{mise_tot:,.2f} €")
             f2.metric("Gains Récoltés", f"{g_tot:,.2f} €")
