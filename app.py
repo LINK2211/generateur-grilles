@@ -200,7 +200,6 @@ with tab1:
         )
 
         with st.spinner("Génération sélective des grilles conformes..."):
-            # On génère un surplus raisonnable pour absorber l'éventuel filtre d'historique
             quota_recherche = (
                 nb_grilles_demande * 4
                 if fichier_historique
@@ -259,7 +258,7 @@ with tab1:
             )
         else:
             st.warning(
-                "Aucune grille trouvée. Vérifie que le pool contient au moins 2 chiffres dans [1-9] et 2 dans [10-19] ou relâche légèrement les contraintes de somme/base."
+                "Aucune grille trouvée. Vérifie que le pool contient au moins 2 chiffres dans [1-9] et 2 dans [10-19] ou assouplis légèrement les contraintes."
             )
 
 # ------------------------------------------------------------------------------
@@ -320,7 +319,7 @@ with tab2:
             )
 
 # ==============================================================================
-# MODULE D'AUDIT : COMPARAISON AVEC LA BONNE COMBINAISON
+# MODULE D'AUDIT : COMPARAISON AVEC OBJECTIF CALIBRABLE
 # ==============================================================================
 st.divider()
 st.subheader("Audit & Vérification des Grilles en Mémoire")
@@ -329,11 +328,19 @@ if st.session_state.grilles_actives:
     nb_grilles = len(st.session_state.grilles_actives)
     st.info(f"**Jeu chargé :** {nb_grilles} grilles prêtes pour l'audit.")
 
-    col_in, col_btn = st.columns([3, 1])
+    col_in, col_calib, col_btn = st.columns([3, 1.5, 1])
     with col_in:
         tirage_test_input = st.text_input(
             "Saisis la combinaison gagnante (10 numéros) :",
             "2 5 11 14 18 20 21 22 24 25",
+        )
+    with col_calib:
+        objectif_mandel = st.slider(
+            "🎯 Calibrer l'objectif (bons numéros) :",
+            min_value=5,
+            max_value=10,
+            value=8,
+            help="Fixe le seuil minimal de bons numéros à mesurer.",
         )
     with col_btn:
         st.write("")
@@ -361,36 +368,52 @@ if st.session_state.grilles_actives:
             ]
             bilan = {k: scores.count(k) for k in range(0, 11)}
 
+            # Métriques dynamiques
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("6 Bons", bilan.get(6, 0))
             m2.metric("7 Bons", bilan.get(7, 0))
-            m3.metric("8 Bons (Objectif)", bilan.get(8, 0))
+            label_obj = (
+                f"{objectif_mandel} Bons (Objectif)"
+                if objectif_mandel not in [6, 7, 10]
+                else f"{objectif_mandel} Bons"
+            )
+            m3.metric(label_obj, bilan.get(objectif_mandel, 0))
             m4.metric("9 Bons", bilan.get(9, 0))
             m5.metric("10/10 (Jackpot)", bilan.get(10, 0))
 
-            total_objectif_8 = (
-                bilan.get(8, 0) + bilan.get(9, 0) + bilan.get(10, 0)
+            # Calcul du total respectant ou dépassant le seuil calibré
+            total_succes = sum(
+                bilan.get(k, 0) for k in range(objectif_mandel, 11)
             )
-            if total_objectif_8 > 0:
+
+            if total_succes > 0:
+                pct = (total_succes / nb_grilles) * 100
                 st.success(
-                    f"🎯 Objectif Mandel atteint ! {total_objectif_8} grille(s) atteignent ou dépassent 8/10."
+                    f"🎯 Objectif Mandel (≥ {objectif_mandel}/10) atteint ! {total_succes} grille(s) sur {nb_grilles} ({pct:.1f}%)."
                 )
             else:
                 st.warning(
-                    "Aucune grille n'atteint 8/10 ou plus sur ce tirage."
+                    f"Aucune grille n'atteint le seuil de {objectif_mandel}/10 sur ce tirage."
                 )
 
-            # Tableau visuel avec mise en valeur
+            # Tableau visuel avec statut dynamique
             table_rows = []
             for idx, g in enumerate(st.session_state.grilles_actives, 1):
                 communs = sorted(list(set(g).intersection(set_gagnante)))
                 c1 = sum(1 for x in g if 1 <= x <= 9)
                 c2 = sum(1 for x in g if 10 <= x <= 19)
+                score_grille = len(communs)
 
-                # Formatage visuel : les numéros gagnants sont encadrés par des étoiles
                 visuel = "  ".join(
                     f"*{x:02d}*" if x in set_gagnante else f"{x:02d}" for x in g
                 )
+
+                if score_grille >= objectif_mandel:
+                    statut_label = f"🌟 GAGNANT (≥{objectif_mandel}/10)"
+                elif score_grille >= 6:
+                    statut_label = "PRIMÉ (6-7)"
+                else:
+                    statut_label = "-"
 
                 table_rows.append(
                     {
@@ -401,10 +424,8 @@ if st.session_state.grilles_actives:
                         "Numéros trouvés": " - ".join(f"{x:02d}" for x in communs)
                         if communs
                         else "-",
-                        "Score": f"{len(communs)} / 10",
-                        "Statut": "🌟 GAGNANT (≥8/10)"
-                        if len(communs) >= 8
-                        else ("PRIMÉ (6-7)" if len(communs) >= 6 else "-"),
+                        "Score": f"{score_grille} / 10",
+                        "Statut": statut_label,
                     }
                 )
 
