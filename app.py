@@ -1,10 +1,3 @@
-import streamlit as st
-
-st.set_page_config(
-    page_title="generateur",
-    page_icon="🚀",
-    layout="centered"  # ou "wide"
-)
 import io
 import itertools
 import random
@@ -57,7 +50,7 @@ def generer_grilles_selectives(
     cible_20: int = -1,
     forcer_decades: bool = True,
 ) -> List[List[int]]:
-    """Moteur 1 : génération sélective par échantillonnage rapide sous filtres."""
+    """Moteur 1 : génération sélective sous filtres empiriques."""
     g1 = [x for x in pool if 1 <= x <= 9]
     g2 = [x for x in pool if 10 <= x <= 19]
     base_set = set(base_initiale) if base_initiale else set()
@@ -95,13 +88,11 @@ def generer_grilles_selectives(
         if forcer_base and len(set(combi).intersection(base_set)) < 3:
             continue
 
-        if cible_10 != -1:
-            if sum(1 for x in combi if 10 <= x <= 19) != cible_10:
-                continue
+        if cible_10 != -1 and sum(1 for x in combi if 10 <= x <= 19) != cible_10:
+            continue
 
-        if cible_20 != -1:
-            if sum(1 for x in combi if 20 <= x <= 25) != cible_20:
-                continue
+        if cible_20 != -1 and sum(1 for x in combi if 20 <= x <= 25) != cible_20:
+            continue
 
         ticket_tuple = tuple(combi)
         if ticket_tuple not in seen:
@@ -118,10 +109,7 @@ def algorithme_glouton_mandel(
     filtrer_decades: bool = True,
     max_grilles: int = 20,
 ) -> List[List[int]]:
-    """Moteur 2 : algorithme glouton réducteur de Mandel (Set Cover).
-
-    Maximise la couverture combinatoire des t-uplets avec quota de grilles.
-    """
+    """Moteur 2 : algorithme glouton réducteur de Mandel (Set Cover)."""
     candidats = list(itertools.combinations(pool, taille_grille))
 
     if filtrer_decades:
@@ -134,7 +122,6 @@ def algorithme_glouton_mandel(
     if not candidats:
         return []
 
-    # Sous-ensembles cibles (échantillonnés si l'espace est saturé)
     tous_subsets = list(itertools.combinations(pool, garantie))
     if len(tous_subsets) > 15000:
         sous_ensembles_a_couvrir = set(tous_subsets[:15000])
@@ -168,6 +155,111 @@ def algorithme_glouton_mandel(
     return grilles_retenues
 
 
+# ------------------------------------------------------------------------------
+# MOTEUR 3 : THÉORIE MARIE DUTEL
+# ------------------------------------------------------------------------------
+def filtrer_combinaison_dutel(
+    comb,
+    min_somme=None,
+    max_somme=None,
+    max_consecutifs=3,
+    max_par_dizaine=4,
+    min_pairs=4,
+    max_pairs=6,
+):
+    """Vérifie si une combinaison respecte les filtres statistiques de Marie Dutel."""
+    # 1. Équilibre Pairs / Impairs
+    pairs = sum(1 for x in comb if x % 2 == 0)
+    if pairs < min_pairs or pairs > max_pairs:
+        return False
+
+    # 2. Somme totale
+    somme = sum(comb)
+    if min_somme is not None and somme < min_somme:
+        return False
+    if max_somme is not None and somme > max_somme:
+        return False
+
+    # 3. Suites consécutives
+    consecutifs = 1
+    for i in range(len(comb) - 1):
+        if comb[i + 1] == comb[i] + 1:
+            consecutifs += 1
+            if consecutifs > max_consecutifs:
+                return False
+        else:
+            consecutifs = 1
+
+    # 4. Dispersion par dizaine
+    dizaines = {}
+    for x in comb:
+        d = x // 10
+        dizaines[d] = dizaines.get(d, 0) + 1
+        if dizaines[d] > max_par_dizaine:
+            return False
+
+    return True
+
+
+def generer_grilles_dutel(
+    numeros_base: List[int],
+    nb_a_generer: int = 15,
+    max_consecutifs: int = 3,
+    max_par_dizaine: int = 4,
+    pct_amplitude: float = 0.25,
+):
+    """Génère des grilles selon la distribution de Gauss et les filtres Dutel."""
+    numeros = sorted(list(set(numeros_base)))
+    if len(numeros) < 10:
+        return [], 0, 0
+
+    # Calibration de la fourchette gaussienne de somme
+    somme_min_possible = sum(numeros[:10])
+    somme_max_possible = sum(numeros[-10:])
+    moyenne_somme = (somme_min_possible + somme_max_possible) / 2
+    amplitude = (somme_max_possible - somme_min_possible) * pct_amplitude
+
+    borne_basse = int(moyenne_somme - amplitude)
+    borne_haute = int(moyenne_somme + amplitude)
+
+    valides = []
+    seen = set()
+    attempts = 0
+    max_attempts = 50000
+
+    # Si le pool est petit, on explore exhaustivement ; sinon, tirage aléatoire contrôlé
+    if len(numeros) <= 15:
+        toutes_combs = list(itertools.combinations(numeros, 10))
+        random.shuffle(toutes_combs)
+        for c in toutes_combs:
+            if filtrer_combinaison_dutel(
+                c,
+                min_somme=borne_basse,
+                max_somme=borne_haute,
+                max_consecutifs=max_consecutifs,
+                max_par_dizaine=max_par_dizaine,
+            ):
+                valides.append(list(c))
+                if len(valides) >= nb_a_generer:
+                    break
+    else:
+        while len(valides) < nb_a_generer and attempts < max_attempts:
+            attempts += 1
+            cand = tuple(sorted(random.sample(numeros, 10)))
+            if cand not in seen:
+                seen.add(cand)
+                if filtrer_combinaison_dutel(
+                    cand,
+                    min_somme=borne_basse,
+                    max_somme=borne_haute,
+                    max_consecutifs=max_consecutifs,
+                    max_par_dizaine=max_par_dizaine,
+                ):
+                    valides.append(list(cand))
+
+    return valides, borne_basse, borne_haute
+
+
 def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
     """Suppression matricielle accélérée via Numpy des grilles trop similaires à l'historique."""
     if not historiques or not grilles:
@@ -195,9 +287,7 @@ def convert_df_to_excel(df, sheet_name="Grilles"):
         df.to_excel(writer, index=False, sheet_name=sheet_name)
         worksheet = writer.sheets[sheet_name]
         for idx, col in enumerate(df.columns):
-            max_len = (
-                max(df[col].astype(str).map(len).max(), len(str(col))) + 2
-            )
+            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
             worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
 
@@ -207,12 +297,16 @@ def convert_df_to_excel(df, sheet_name="Grilles"):
 # ==============================================================================
 
 st.title("Système de Génération & Réduction Mathématique")
-tab1, tab2 = st.tabs(
-    ["Moteur 1 : Filtrage Empirique", "Moteur 2 : Système Réducteur Mandel"]
+tab1, tab2, tab3 = st.tabs(
+    [
+        "Moteur 1 : Filtrage Empirique",
+        "Moteur 2 : Système Réducteur Mandel",
+        "Moteur 3 : Théorie Marie Dutel",
+    ]
 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 1 : FILTRAGE EMPIRIQUE (SÉLECTIF)
+# ONGLET 1 : FILTRAGE EMPIRIQUE
 # ------------------------------------------------------------------------------
 with tab1:
     st.header("Filtrage par Hypothèses et Limites")
@@ -262,21 +356,15 @@ with tab1:
         base_liste = [int(x) for x in base_input.split() if x.isdigit()]
 
         sous_pool = preparer_pool(base_liste)
-        pool_final = sorted(
-            list(set(sous_pool).intersection(set(pool_global)))
-        )
+        pool_final = sorted(list(set(sous_pool).intersection(set(pool_global))))
         if not pool_final:
             pool_final = pool_global
 
-        st.info(
-            f"Pool final de travail : {pool_final} ({len(pool_final)} numéros)"
-        )
+        st.info(f"Pool final de travail : {pool_final} ({len(pool_final)} numéros)")
 
         with st.spinner("Génération sélective des grilles..."):
             quota_recherche = (
-                nb_grilles_demande * 4
-                if fichier_historique
-                else nb_grilles_demande
+                nb_grilles_demande * 4 if fichier_historique else nb_grilles_demande
             )
             grilles_brutes = generer_grilles_selectives(
                 pool=pool_final,
@@ -308,35 +396,22 @@ with tab1:
 
         if grilles_finales:
             st.session_state.grilles_actives = grilles_finales
-            st.success(
-                f"{len(grilles_finales)} grilles conformes prêtes à l'exploitation."
-            )
+            st.success(f"{len(grilles_finales)} grilles conformes générées.")
 
-            # Formatage du tableau avec colonnes N1 à N10
             df_results = pd.DataFrame(
                 grilles_finales, columns=[f"N{i+1}" for i in range(10)]
             )
-            df_results.insert(
-                0, "Grille", [f"G{i+1}" for i in range(len(grilles_finales))]
-            )
+            df_results.insert(0, "Grille", [f"G{i+1}" for i in range(len(grilles_finales))])
             df_results["Somme"] = [sum(g) for g in grilles_finales]
-            df_results["G1 [1-9]"] = [
-                sum(1 for x in g if 1 <= x <= 9) for g in grilles_finales
-            ]
-            df_results["G2 [10-19]"] = [
-                sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales
-            ]
-            df_results["G3 [20-25]"] = [
-                sum(1 for x in g if 20 <= x <= 25) for g in grilles_finales
-            ]
+            df_results["G1 [1-9]"] = [sum(1 for x in g if 1 <= x <= 9) for g in grilles_finales]
+            df_results["G2 [10-19]"] = [sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales]
+            df_results["G3 [20-25]"] = [sum(1 for x in g if 20 <= x <= 25) for g in grilles_finales]
 
             st.dataframe(df_results, use_container_width=True)
 
             st.download_button(
                 label="📥 Exporter en fichier Excel (.xlsx)",
-                data=convert_df_to_excel(
-                    df_results, sheet_name="Grilles_Empiriques"
-                ),
+                data=convert_df_to_excel(df_results, sheet_name="Grilles_Empiriques"),
                 file_name="grilles_empiriques.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_t1",
@@ -345,7 +420,7 @@ with tab1:
             st.warning("Aucune grille trouvée avec ces contraintes.")
 
 # ------------------------------------------------------------------------------
-# ONGLET 2 : SYSTÈME RÉDUCTEUR MANDEL (AVEC EXPORT EXCEL)
+# ONGLET 2 : SYSTÈME RÉDUCTEUR MANDEL
 # ------------------------------------------------------------------------------
 with tab2:
     st.header("Couverture Combinatoire Optimale (Mandel)")
@@ -384,9 +459,7 @@ with tab2:
         if len(pool_r) < 10:
             st.error("Le pool doit contenir au minimum 10 numéros.")
         elif forcer_decades_t2 and (g1_count < 2 or g2_count < 2):
-            st.error(
-                "Le pool doit contenir au moins 2 chiffres dans [1-9] et 2 dans [10-19]."
-            )
+            st.error("Le pool doit contenir au moins 2 chiffres dans [1-9] et 2 dans [10-19].")
         else:
             with st.spinner("Calcul de la condensation combinatoire..."):
                 grilles_mandel = algorithme_glouton_mandel(
@@ -406,33 +479,104 @@ with tab2:
                 df_mandel = pd.DataFrame(
                     grilles_mandel, columns=[f"N{i+1}" for i in range(10)]
                 )
-                df_mandel.insert(
-                    0, "Grille", [f"G{i+1}" for i in range(len(grilles_mandel))]
-                )
+                df_mandel.insert(0, "Grille", [f"G{i+1}" for i in range(len(grilles_mandel))])
                 df_mandel["Somme"] = [sum(g) for g in grilles_mandel]
-                df_mandel["G1 [1-9]"] = [
-                    sum(1 for x in g if 1 <= x <= 9) for g in grilles_mandel
-                ]
-                df_mandel["G2 [10-19]"] = [
-                    sum(1 for x in g if 10 <= x <= 19) for g in grilles_mandel
-                ]
-                df_mandel["G3 [20-25]"] = [
-                    sum(1 for x in g if 20 <= x <= 25) for g in grilles_mandel
-                ]
+                df_mandel["G1 [1-9]"] = [sum(1 for x in g if 1 <= x <= 9) for g in grilles_mandel]
+                df_mandel["G2 [10-19]"] = [sum(1 for x in g if 10 <= x <= 19) for g in grilles_mandel]
+                df_mandel["G3 [20-25]"] = [sum(1 for x in g if 20 <= x <= 25) for g in grilles_mandel]
 
                 st.dataframe(df_mandel, use_container_width=True)
 
                 st.download_button(
                     label="📥 Exporter le Système Réducteur en Excel (.xlsx)",
-                    data=convert_df_to_excel(
-                        df_mandel, sheet_name="Mandel_Reducteur"
-                    ),
+                    data=convert_df_to_excel(df_mandel, sheet_name="Mandel_Reducteur"),
                     file_name="systeme_reducteur_mandel.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_t2",
                 )
             else:
                 st.warning("Impossible de générer des grilles sous ces critères.")
+
+# ------------------------------------------------------------------------------
+# ONGLET 3 : THÉORIE MARIE DUTEL
+# ------------------------------------------------------------------------------
+with tab3:
+    st.header("Filtrage Statistique & Courbe de Gauss (Marie Dutel)")
+
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+        pool_dutel_input = st.text_input(
+            "Pool sélectionné (10 à 25 numéros) :",
+            "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25",
+            key="pool_dutel_in",
+        )
+        nb_grilles_dutel = st.number_input(
+            "Nombre de grilles à générer :", value=15, min_value=1, max_value=200, key="nb_dutel"
+        )
+
+    with col_d2:
+        st.markdown("**Contraintes Topologiques**")
+        max_consec = st.slider("Max numéros consécutifs :", min_value=1, max_value=4, value=3)
+        max_diz = st.slider("Max numéros par dizaine :", min_value=2, max_value=6, value=4)
+
+    with col_d3:
+        st.markdown("**Équilibre Statistique**")
+        st.caption("• Pairs / Impairs : strictly entre 4 et 6 pairs.")
+        amplitude_gauss = st.slider(
+            "Largeur de la cloche de Gauss (± %) :",
+            min_value=0.10,
+            max_value=0.40,
+            value=0.25,
+            step=0.05,
+            help="Contrôle l'écart autour de la somme médiane.",
+        )
+
+    if st.button("Générer selon la Théorie Dutel", type="primary"):
+        pool_d = [int(x) for x in pool_dutel_input.split() if x.isdigit()]
+        pool_d = sorted(list(set(pool_d)))
+
+        if len(pool_d) < 10:
+            st.error("Le pool doit comporter au moins 10 numéros distincts.")
+        elif len(pool_d) > 25:
+            st.error("Le pool ne doit pas dépasser 25 numéros.")
+        else:
+            with st.spinner("Calcul de la distribution gaussienne et filtrage..."):
+                grilles_dutel, b_basse, b_haute = generer_grilles_dutel(
+                    numeros_base=pool_d,
+                    nb_a_generer=nb_grilles_dutel,
+                    max_consecutifs=max_consec,
+                    max_par_dizaine=max_diz,
+                    pct_amplitude=amplitude_gauss,
+                )
+
+            if grilles_dutel:
+                st.session_state.grilles_actives = grilles_dutel
+                st.success(
+                    f"{len(grilles_dutel)} grilles conformes générées | Fourchette de somme retenue : [{b_basse} - {b_haute}]"
+                )
+
+                df_dutel = pd.DataFrame(
+                    grilles_dutel, columns=[f"N{i+1}" for i in range(10)]
+                )
+                df_dutel.insert(0, "Grille", [f"G{i+1}" for i in range(len(grilles_dutel))])
+                df_dutel["Somme"] = [sum(g) for g in grilles_dutel]
+                df_dutel["Pairs"] = [sum(1 for x in g if x % 2 == 0) for g in grilles_dutel]
+                df_dutel["Impairs"] = [10 - p for p in df_dutel["Pairs"]]
+                df_dutel["G1 [1-9]"] = [sum(1 for x in g if 1 <= x <= 9) for g in grilles_dutel]
+                df_dutel["G2 [10-19]"] = [sum(1 for x in g if 10 <= x <= 19) for g in grilles_dutel]
+                df_dutel["G3 [20-25]"] = [sum(1 for x in g if 20 <= x <= 25) for g in grilles_dutel]
+
+                st.dataframe(df_dutel, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Exporter les grilles Dutel en Excel (.xlsx)",
+                    data=convert_df_to_excel(df_dutel, sheet_name="Marie_Dutel"),
+                    file_name="grilles_theorie_dutel.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_t3",
+                )
+            else:
+                st.warning("Aucune grille trouvée. Élargis la cloche de Gauss ou desserre les contraintes.")
 
 # ==============================================================================
 # MODULE DE VÉRIFICATION & EXTRACTION AUDIT
@@ -533,4 +677,4 @@ if st.session_state.grilles_actives:
                 key="dl_audit",
             )
 else:
-    st.caption("Génère d'abord des grilles dans l'un des deux onglets ci-dessus pour activer l'audit.")
+    st.caption("Génère d'abord des grilles dans l'un des trois onglets ci-dessus pour activer l'audit.")
