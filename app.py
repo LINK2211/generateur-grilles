@@ -1,6 +1,6 @@
 import io
 import random
-from typing import List, Set
+from typing import List
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -8,7 +8,7 @@ import streamlit as st
 # ==============================================================================
 # CONFIGURATION ET PRÉREQUIS
 # ==============================================================================
-st.set_page_config(page_title="Générateur & Système Réducteur", layout="wide")
+st.set_page_config(page_title="Générateur de Grilles & Audit", layout="wide")
 
 if "grilles_actives" not in st.session_state:
     st.session_state.grilles_actives = None
@@ -16,7 +16,7 @@ if "grilles_actives" not in st.session_state:
 pool_global = list(range(1, 26))
 
 # ==============================================================================
-# FONCTIONS LOGIQUES ET ALGORITHMES (GÉNÉRATION SÉLECTIVE)
+# FONCTIONS LOGIQUES ET ALGORITHMES
 # ==============================================================================
 
 
@@ -31,7 +31,7 @@ def preparer_pool(base_initiale):
     return sorted(list(pool))
 
 
-def generer_grilles_mandel_filtrees(
+def generer_grilles_selectives(
     pool: List[int],
     base_initiale: List[int],
     nb_grilles: int = 15,
@@ -40,38 +40,38 @@ def generer_grilles_mandel_filtrees(
     max_sum: int = 180,
     cible_10: int = -1,
     cible_20: int = -1,
-    filtrer_mandel: bool = True,
+    forcer_decades: bool = True,
 ) -> List[List[int]]:
-    """Génération sélective et rapide par échantillonnage ciblé sous contraintes :
+    """Génération sélective rapide par échantillonnage ciblé sous contraintes :
 
-    - Au moins 2 chiffres dans [1-9] (si Mandel actif)
-    - Au moins 2 chiffres dans [10-19] (si Mandel actif)
-    - Filtre de somme, ancrage sur base et ciblage décadaire précis
+    - Au moins 2 chiffres dans [1-9] (si activé)
+    - Au moins 2 chiffres dans [10-19] (si activé)
+    - Filtre de somme, ancrage sur base et cibles exactes
     """
     g1 = [x for x in pool if 1 <= x <= 9]
     g2 = [x for x in pool if 10 <= x <= 19]
     base_set = set(base_initiale) if base_initiale else set()
 
-    if filtrer_mandel and (len(g1) < 2 or len(g2) < 2):
+    if forcer_decades and (len(g1) < 2 or len(g2) < 2):
         return []
 
     grilles = []
     seen = set()
     attempts = 0
-    max_attempts = 30000
+    max_attempts = 40000
 
     while len(grilles) < nb_grilles and attempts < max_attempts:
         attempts += 1
         ticket = set()
 
-        # 1. Respect des contraintes décadaires minimales Mandel
-        if filtrer_mandel:
+        # 1. Respect des contraintes de décades minimales
+        if forcer_decades:
             k1 = random.choice([2, 3]) if len(g1) >= 3 else 2
             k2 = random.choice([2, 3]) if len(g2) >= 3 else 2
             ticket.update(random.sample(g1, k1))
             ticket.update(random.sample(g2, k2))
 
-        # 2. Compléter jusqu'à 10 chiffres avec le pool restant
+        # 2. Compléter jusqu'à 10 chiffres avec le reste du pool
         rest_pool = [x for x in pool if x not in ticket]
         needed = 10 - len(ticket)
         if len(rest_pool) < needed:
@@ -126,10 +126,16 @@ def filtrer_par_historique(grilles, historiques, seuil_exclusion=6):
     return [grilles[idx] for idx in index_valides]
 
 
-def convert_df_to_excel(df):
+def convert_df_to_excel(df, sheet_name="Grilles"):
+    """Convertit un DataFrame en fichier Excel propre et téléchargeable."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Grilles")
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        # Auto-ajustement basique des largeurs de colonnes
+        worksheet = writer.sheets[sheet_name]
+        for idx, col in enumerate(df.columns):
+            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
+            worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
 
 
@@ -137,210 +143,139 @@ def convert_df_to_excel(df):
 # INTERFACE UTILISATEUR
 # ==============================================================================
 
-st.title("Système de Génération & Réduction Mathématique")
-tab1, tab2 = st.tabs(
-    ["Moteur 1 : Filtrage Empirique", "Moteur 2 : Système Réducteur Mandel"]
-)
+st.title("Générateur de Grilles Sélectif & Extraction Excel")
 
-# ------------------------------------------------------------------------------
-# ONGLET 1 : FILTRAGE EMPIRIQUE (GÉNÉRATION CIBLÉE)
-# ------------------------------------------------------------------------------
-with tab1:
-    st.header("Filtrage par Hypothèses et Limites")
-    col1, col2, col3 = st.columns(3)
+st.header("1. Paramètres et Filtres Combinatoires")
+col1, col2, col3 = st.columns(3)
 
-    with col1:
-        base_input = st.text_input("Série de base :", "3 7 11 15 18 19 22")
-        forcer_base = st.checkbox("Forcer min 3 numéros de la base", value=True)
-        filtre_mandel_tab1 = st.checkbox(
-            "Filtre Mandel : min 2 dans [1-9] et min 2 dans [10-19]", value=True
-        )
-
-    with col2:
-        min_sum = st.number_input("Plancher de somme", value=80, step=10)
-        max_sum = st.number_input("Plafond de somme", value=180, step=10)
-        nb_grilles_demande = st.number_input(
-            "Nombre de grilles à générer", value=15, min_value=1, max_value=200
-        )
-
-    with col3:
-        st.markdown("**Structure (-1 pour désactiver)**")
-        cible_10 = st.number_input(
-            "Nombre exact de dizaines (10-19)",
-            value=-1,
-            min_value=-1,
-            max_value=10,
-        )
-        cible_20 = st.number_input(
-            "Nombre exact de vingtaines (20-25)",
-            value=-1,
-            min_value=-1,
-            max_value=6,
-        )
-        seuil_exclu = st.number_input(
-            "Seuil d'exclusion historique", value=6, min_value=4, max_value=10
-        )
-
-    fichier_historique = st.file_uploader(
-        "Importer l'historique des tirages", type=["csv", "xlsx"]
+with col1:
+    base_input = st.text_input("Série de base :", "3 7 11 15 18 19 22")
+    forcer_base = st.checkbox("Forcer min 3 numéros de la base", value=True)
+    forcer_decades = st.checkbox(
+        "Forcer min 2 dans [1-9] et min 2 dans [10-19]", value=True
     )
 
-    if st.button("Lancer le Moteur Sélectif", type="primary"):
-        base_liste = [int(x) for x in base_input.split() if x.isdigit()]
+with col2:
+    min_sum = st.number_input("Plancher de somme", value=80, step=10)
+    max_sum = st.number_input("Plafond de somme", value=180, step=10)
+    nb_grilles_demande = st.number_input(
+        "Nombre de grilles à générer", value=20, min_value=1, max_value=500
+    )
 
-        sous_pool = preparer_pool(base_liste)
-        pool_final = sorted(
-            list(set(sous_pool).intersection(set(pool_global)))
+with col3:
+    st.markdown("**Structure (-1 pour désactiver)**")
+    cible_10 = st.number_input(
+        "Nombre exact de dizaines (10-19)", value=-1, min_value=-1, max_value=10
+    )
+    cible_20 = st.number_input(
+        "Nombre exact de vingtaines (20-25)", value=-1, min_value=-1, max_value=6
+    )
+    seuil_exclu = st.number_input(
+        "Seuil d'exclusion historique", value=6, min_value=4, max_value=10
+    )
+
+fichier_historique = st.file_uploader(
+    "Importer l'historique des tirages (optionnel)", type=["csv", "xlsx"]
+)
+
+if st.button("Générer les Grilles", type="primary"):
+    base_liste = [int(x) for x in base_input.split() if x.isdigit()]
+
+    sous_pool = preparer_pool(base_liste)
+    pool_final = sorted(list(set(sous_pool).intersection(set(pool_global))))
+    if not pool_final:
+        pool_final = pool_global
+
+    st.info(f"Pool final de travail : {pool_final} ({len(pool_final)} numéros)")
+
+    with st.spinner("Génération sélective des grilles..."):
+        quota_recherche = (
+            nb_grilles_demande * 4 if fichier_historique else nb_grilles_demande
         )
-        if not pool_final:
-            pool_final = pool_global
-
-        st.info(
-            f"Pool final de travail : {pool_final} ({len(pool_final)} numéros)"
-        )
-
-        with st.spinner("Génération sélective des grilles conformes..."):
-            quota_recherche = (
-                nb_grilles_demande * 4
-                if fichier_historique
-                else nb_grilles_demande
-            )
-            grilles_brutes = generer_grilles_mandel_filtrees(
-                pool=pool_final,
-                base_initiale=base_liste,
-                nb_grilles=quota_recherche,
-                forcer_base=forcer_base,
-                min_sum=min_sum,
-                max_sum=max_sum,
-                cible_10=cible_10,
-                cible_20=cible_20,
-                filtrer_mandel=filtre_mandel_tab1,
-            )
-
-        historiques = []
-        if fichier_historique and grilles_brutes:
-            df_hist = (
-                pd.read_csv(fichier_historique)
-                if fichier_historique.name.endswith(".csv")
-                else pd.read_excel(fichier_historique)
-            )
-            df_propre = df_hist.iloc[:, :10].dropna()
-            historiques = df_propre.astype(int).values.tolist()
-            grilles_filtrees = filtrer_par_historique(
-                grilles_brutes, historiques, seuil_exclu
-            )
-            grilles_finales = grilles_filtrees[:nb_grilles_demande]
-        else:
-            grilles_finales = grilles_brutes[:nb_grilles_demande]
-
-        if grilles_finales:
-            st.session_state.grilles_actives = grilles_finales
-            st.success(
-                f"{len(grilles_finales)} grilles conformes générées instantanément."
-            )
-
-            df_results = pd.DataFrame(
-                grilles_finales, columns=[f"N{i+1}" for i in range(10)]
-            )
-            df_results["G1 [1-9]"] = [
-                sum(1 for x in g if 1 <= x <= 9) for g in grilles_finales
-            ]
-            df_results["G2 [10-19]"] = [
-                sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales
-            ]
-            df_results["Somme"] = [sum(g) for g in grilles_finales]
-
-            st.dataframe(df_results, use_container_width=True)
-            st.download_button(
-                "Télécharger les grilles (Excel)",
-                convert_df_to_excel(df_results),
-                "grilles_selectives.xlsx",
-            )
-        else:
-            st.warning(
-                "Aucune grille trouvée. Vérifie que le pool contient au moins 2 chiffres dans [1-9] et 2 dans [10-19] ou assouplis légèrement les contraintes."
-            )
-
-# ------------------------------------------------------------------------------
-# ONGLET 2 : SYSTÈME RÉDUCTEUR MANDEL DIRECT
-# ------------------------------------------------------------------------------
-with tab2:
-    st.header("Couverture Combinatoire Optimale (Mandel)")
-
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        pool_reducteur_input = st.text_input(
-            "Pool de 25 numéros :", " ".join(str(x) for x in range(1, 26))
-        )
-    with col_r2:
-        nb_grilles_mandel = st.slider(
-            "Nombre de grilles à générer :",
-            min_value=5,
-            max_value=60,
-            value=15,
+        grilles_brutes = generer_grilles_selectives(
+            pool=pool_final,
+            base_initiale=base_liste,
+            nb_grilles=quota_recherche,
+            forcer_base=forcer_base,
+            min_sum=min_sum,
+            max_sum=max_sum,
+            cible_10=cible_10,
+            cible_20=cible_20,
+            forcer_decades=forcer_decades,
         )
 
-    if st.button("Générer le Jeu Réducteur Mandel", type="primary"):
-        pool_r = [int(x) for x in pool_reducteur_input.split() if x.isdigit()]
-        pool_r = sorted(list(set(pool_r)))
+    historiques = []
+    if fichier_historique and grilles_brutes:
+        df_hist = (
+            pd.read_csv(fichier_historique)
+            if fichier_historique.name.endswith(".csv")
+            else pd.read_excel(fichier_historique)
+        )
+        df_propre = df_hist.iloc[:, :10].dropna()
+        historiques = df_propre.astype(int).values.tolist()
+        grilles_filtrees = filtrer_par_historique(
+            grilles_brutes, historiques, seuil_exclu
+        )
+        grilles_finales = grilles_filtrees[:nb_grilles_demande]
+    else:
+        grilles_finales = grilles_brutes[:nb_grilles_demande]
 
-        if len(pool_r) < 10:
-            st.error("Le pool doit contenir au minimum 10 numéros.")
-        else:
-            grilles_mandel = generer_grilles_mandel_filtrees(
-                pool=pool_r,
-                base_initiale=[],
-                nb_grilles=nb_grilles_mandel,
-                forcer_base=False,
-                min_sum=0,
-                max_sum=0,
-                filtrer_mandel=True,
-            )
+    if grilles_finales:
+        st.session_state.grilles_actives = grilles_finales
+        st.success(f"{len(grilles_finales)} grilles conformes générées.")
 
-            st.session_state.grilles_actives = grilles_mandel
-            st.success(
-                f"{len(grilles_mandel)} grilles générées avec respect strict des plages décadaires."
-            )
+        # Construction du DataFrame optimisé pour l'exploitation Excel
+        df_results = pd.DataFrame(
+            grilles_finales, columns=[f"N{i+1}" for i in range(10)]
+        )
+        df_results.insert(0, "Grille", [f"G{i+1}" for i in range(len(grilles_finales))])
+        df_results["Somme"] = [sum(g) for g in grilles_finales]
+        df_results["G1 [1-9]"] = [
+            sum(1 for x in g if 1 <= x <= 9) for g in grilles_finales
+        ]
+        df_results["G2 [10-19]"] = [
+            sum(1 for x in g if 10 <= x <= 19) for g in grilles_finales
+        ]
+        df_results["G3 [20-25]"] = [
+            sum(1 for x in g if 20 <= x <= 25) for g in grilles_finales
+        ]
 
-            df_mandel = pd.DataFrame(
-                grilles_mandel, columns=[f"N{i+1}" for i in range(10)]
-            )
-            df_mandel["G1 [1-9]"] = [
-                sum(1 for x in g if 1 <= x <= 9) for g in grilles_mandel
-            ]
-            df_mandel["G2 [10-19]"] = [
-                sum(1 for x in g if 10 <= x <= 19) for g in grilles_mandel
-            ]
-            st.dataframe(df_mandel, use_container_width=True)
-            st.download_button(
-                "Télécharger (Excel)",
-                convert_df_to_excel(df_mandel),
-                "systeme_mandel.xlsx",
-            )
+        st.dataframe(df_results, use_container_width=True)
+
+        st.download_button(
+            label="📥 Télécharger les grilles au format Excel (.xlsx)",
+            data=convert_df_to_excel(df_results, sheet_name="Combinaisons"),
+            file_name="grilles_loto_generees.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.warning(
+            "Aucune grille ne respecte l'ensemble de ces filtres. Assouplis les plages de somme ou la série de base."
+        )
 
 # ==============================================================================
-# MODULE D'AUDIT : COMPARAISON AVEC OBJECTIF CALIBRABLE
+# MODULE DE VÉRIFICATION & EXTRACTION AUDIT
 # ==============================================================================
 st.divider()
-st.subheader("Audit & Vérification des Grilles en Mémoire")
+st.subheader("2. Audit du Tirage & Extraction des Résultats")
 
 if st.session_state.grilles_actives:
     nb_grilles = len(st.session_state.grilles_actives)
-    st.info(f"**Jeu chargé :** {nb_grilles} grilles prêtes pour l'audit.")
+    st.info(f"**Jeu en mémoire :** {nb_grilles} grilles prêtes pour l'audit.")
 
     col_in, col_calib, col_btn = st.columns([3, 1.5, 1])
     with col_in:
         tirage_test_input = st.text_input(
-            "Saisis la combinaison gagnante (10 numéros) :",
+            "Saisis les 10 numéros du tirage (séparés par un espace) :",
             "2 5 11 14 18 20 21 22 24 25",
         )
     with col_calib:
-        objectif_mandel = st.slider(
-            "🎯 Calibrer l'objectif (bons numéros) :",
+        seuil_objectif = st.slider(
+            "🎯 Objectif de bons numéros :",
             min_value=5,
             max_value=10,
             value=8,
-            help="Fixe le seuil minimal de bons numéros à mesurer.",
+            help="Définit le seuil pour identifier les grilles gagnantes.",
         )
     with col_btn:
         st.write("")
@@ -348,18 +283,14 @@ if st.session_state.grilles_actives:
         lancer_audit = st.button("Comparer au tirage", type="secondary")
 
     if lancer_audit:
-        tirage_test = [
-            int(x) for x in tirage_test_input.split() if x.isdigit()
-        ]
+        tirage_test = [int(x) for x in tirage_test_input.split() if x.isdigit()]
 
         if len(tirage_test) != 10:
-            st.error("Erreur : saisis exactement 10 numéros distincts.")
+            st.error("Erreur : saisis exactement 10 numéros.")
         elif len(set(tirage_test)) != 10:
-            st.error("Erreur : la combinaison ne doit comporter aucun doublon.")
+            st.error("Erreur : aucun doublon n'est permis dans le tirage.")
         elif any(x < 1 or x > 25 for x in tirage_test):
-            st.error(
-                "Périmètre invalide : tous les numéros doivent être compris entre 1 et 25."
-            )
+            st.error("Erreur : les numéros doivent être compris entre 1 et 25.")
         else:
             set_gagnante = set(tirage_test)
             scores = [
@@ -368,70 +299,56 @@ if st.session_state.grilles_actives:
             ]
             bilan = {k: scores.count(k) for k in range(0, 11)}
 
-            # Métriques dynamiques
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("6 Bons", bilan.get(6, 0))
             m2.metric("7 Bons", bilan.get(7, 0))
             label_obj = (
-                f"{objectif_mandel} Bons (Objectif)"
-                if objectif_mandel not in [6, 7, 10]
-                else f"{objectif_mandel} Bons"
+                f"{seuil_objectif} Bons (Objectif)"
+                if seuil_objectif not in [6, 7, 10]
+                else f"{seuil_objectif} Bons"
             )
-            m3.metric(label_obj, bilan.get(objectif_mandel, 0))
+            m3.metric(label_obj, bilan.get(seuil_objectif, 0))
             m4.metric("9 Bons", bilan.get(9, 0))
-            m5.metric("10/10 (Jackpot)", bilan.get(10, 0))
+            m5.metric("10/10", bilan.get(10, 0))
 
-            # Calcul du total respectant ou dépassant le seuil calibré
-            total_succes = sum(
-                bilan.get(k, 0) for k in range(objectif_mandel, 11)
-            )
-
+            total_succes = sum(bilan.get(k, 0) for k in range(seuil_objectif, 11))
             if total_succes > 0:
                 pct = (total_succes / nb_grilles) * 100
                 st.success(
-                    f"🎯 Objectif Mandel (≥ {objectif_mandel}/10) atteint ! {total_succes} grille(s) sur {nb_grilles} ({pct:.1f}%)."
+                    f"🎯 Objectif atteint : {total_succes} grille(s) sur {nb_grilles} ({pct:.1f}%) ont au moins {seuil_objectif} bons numéros !"
                 )
             else:
-                st.warning(
-                    f"Aucune grille n'atteint le seuil de {objectif_mandel}/10 sur ce tirage."
-                )
+                st.warning(f"Aucune grille n'atteint {seuil_objectif}/10 sur ce tirage.")
 
-            # Tableau visuel avec statut dynamique
-            table_rows = []
+            # Construction du tableau d'audit exportable
+            audit_rows = []
             for idx, g in enumerate(st.session_state.grilles_actives, 1):
                 communs = sorted(list(set(g).intersection(set_gagnante)))
-                c1 = sum(1 for x in g if 1 <= x <= 9)
-                c2 = sum(1 for x in g if 10 <= x <= 19)
                 score_grille = len(communs)
-
-                visuel = "  ".join(
-                    f"*{x:02d}*" if x in set_gagnante else f"{x:02d}" for x in g
+                statut = (
+                    f"GAGNANT (≥{seuil_objectif})"
+                    if score_grille >= seuil_objectif
+                    else ("PRIMÉ" if score_grille >= 6 else "-")
                 )
 
-                if score_grille >= objectif_mandel:
-                    statut_label = f"🌟 GAGNANT (≥{objectif_mandel}/10)"
-                elif score_grille >= 6:
-                    statut_label = "PRIMÉ (6-7)"
-                else:
-                    statut_label = "-"
-
-                table_rows.append(
-                    {
-                        "Grille": f"#{idx:02d}",
-                        "Composition (étoiles = gagnants)": visuel,
-                        "G1 [1-9]": c1,
-                        "G2 [10-19]": c2,
-                        "Numéros trouvés": " - ".join(f"{x:02d}" for x in communs)
-                        if communs
-                        else "-",
-                        "Score": f"{score_grille} / 10",
-                        "Statut": statut_label,
-                    }
+                row_dict = {"Grille": f"G{idx}"}
+                for num_i, val in enumerate(g, 1):
+                    row_dict[f"N{num_i}"] = val
+                row_dict["Score"] = score_grille
+                row_dict["Numéros Trouvés"] = (
+                    ", ".join(str(x) for x in communs) if communs else ""
                 )
+                row_dict["Statut"] = statut
+                audit_rows.append(row_dict)
 
-            df_detail = pd.DataFrame(table_rows)
-            st.dataframe(df_detail, use_container_width=True)
+            df_audit = pd.DataFrame(audit_rows)
+            st.dataframe(df_audit, use_container_width=True)
+
+            st.download_button(
+                label="📥 Télécharger l'Audit complet en Excel (.xlsx)",
+                data=convert_df_to_excel(df_audit, sheet_name="Audit_Tirage"),
+                file_name="audit_tirage_resultats.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 else:
-    st.caption(
-        "Génère d'abord des grilles dans l'un des deux onglets ci-dessus pour activer ce module."
-    )
+    st.caption("Génère d'abord des grilles dans la section 1 pour activer l'audit.")
