@@ -63,9 +63,15 @@ def analyser_et_filtrer_univers(
             continue
         if forcer_base and len(set(combi).intersection(base_set)) < 3:
             continue
-        if cible_10 != -1 and sum(1 for x in combi if 10 <= x <= 19) != cible_10:
+        if (
+            cible_10 != -1
+            and sum(1 for x in combi if 10 <= x <= 19) != cible_10
+        ):
             continue
-        if cible_20 != -1 and sum(1 for x in combi if 20 <= x <= 25) != cible_20:
+        if (
+            cible_20 != -1
+            and sum(1 for x in combi if 20 <= x <= 25) != cible_20
+        ):
             continue
         valides.append(list(combi))
 
@@ -79,7 +85,7 @@ def algorithme_glouton_mandel(
     taille_grille: int = 10,
     garantie: int = 8,
     filtrer_decades: bool = True,
-    max_grilles: int = 20,
+    max_grilles: int = 500,
 ) -> List[List[int]]:
     candidats = list(itertools.combinations(pool, taille_grille))
     if filtrer_decades:
@@ -93,8 +99,9 @@ def algorithme_glouton_mandel(
         return []
 
     tous_subsets = list(itertools.combinations(pool, garantie))
+    # Limite de sous-ensembles pour préserver les performances en mémoire
     sous_ensembles_a_couvrir = (
-        set(tous_subsets[:15000]) if len(tous_subsets) > 15000 else set(tous_subsets)
+        set(tous_subsets[:20000]) if len(tous_subsets) > 20000 else set(tous_subsets)
     )
 
     grilles_retenues = []
@@ -111,9 +118,10 @@ def algorithme_glouton_mandel(
                 meilleure_grille = combi
 
         if not meilleure_grille or len(max_couverts) == 0:
-            if candidats and len(grilles_retenues) < max_grilles:
-                grilles_retenues.append(candidats.pop(0))
-                continue
+            # Compléter si le stock de candidats le permet
+            reste_a_combler = max_grilles - len(grilles_retenues)
+            if candidats and reste_a_combler > 0:
+                grilles_retenues.extend([list(c) for c in candidats[:reste_a_combler]])
             break
 
         grilles_retenues.append(list(meilleure_grille))
@@ -154,7 +162,7 @@ def filtrer_combinaison_dutel(
 
 def generer_grilles_dutel(
     numeros_base: List[int],
-    nb_a_generer: int = 15,
+    nb_a_generer: int = 500,
     max_consecutifs: int = 3,
     max_par_dizaine: int = 4,
     pct_amplitude: float = 0.25,
@@ -172,7 +180,7 @@ def generer_grilles_dutel(
     valides = []
     seen = set()
     attempts = 0
-    max_attempts = 40000
+    max_attempts = max(200000, nb_a_generer * 800)
 
     while len(valides) < nb_a_generer and attempts < max_attempts:
         attempts += 1
@@ -208,7 +216,7 @@ def filtrer_combinaison_delta(
 
 def generer_grilles_delta(
     numeros_base: List[int],
-    nb_a_generer: int = 15,
+    nb_a_generer: int = 500,
     min_petits_deltas: int = 6,
     max_delta_val: int = 5,
     min_somme: int = 80,
@@ -220,7 +228,7 @@ def generer_grilles_delta(
     valides = []
     seen = set()
     attempts = 0
-    max_attempts = 40000
+    max_attempts = max(200000, nb_a_generer * 800)
 
     while len(valides) < nb_a_generer and attempts < max_attempts:
         attempts += 1
@@ -254,7 +262,7 @@ def filtrer_combinaison_terminaisons(
 
 def generer_grilles_terminaisons(
     numeros_base: List[int],
-    nb_a_generer: int = 15,
+    nb_a_generer: int = 500,
     min_uniques: int = 6,
     max_uniques: int = 8,
     max_repetition: int = 3,
@@ -265,7 +273,7 @@ def generer_grilles_terminaisons(
     valides = []
     seen = set()
     attempts = 0
-    max_attempts = 40000
+    max_attempts = max(200000, nb_a_generer * 800)
 
     while len(valides) < nb_a_generer and attempts < max_attempts:
         attempts += 1
@@ -290,7 +298,7 @@ def filtrer_combinaison_centre_periph(comb, min_centre=3, max_centre=6):
 
 def generer_grilles_centre_periph(
     numeros_base: List[int],
-    nb_a_generer: int = 15,
+    nb_a_generer: int = 500,
     min_centre: int = 3,
     max_centre: int = 6,
 ):
@@ -300,7 +308,7 @@ def generer_grilles_centre_periph(
     valides = []
     seen = set()
     attempts = 0
-    max_attempts = 40000
+    max_attempts = max(200000, nb_a_generer * 800)
 
     while len(valides) < nb_a_generer and attempts < max_attempts:
         attempts += 1
@@ -316,7 +324,7 @@ def generer_grilles_centre_periph(
 
 # --- BIBD ---
 def generer_matrice_bibd_equilibre(
-    pool: List[int], nb_grilles: int = 20, seed: int = 42
+    pool: List[int], nb_grilles: int = 500, seed: int = 42
 ) -> List[List[int]]:
     random.seed(seed)
     numeros = sorted(list(set(pool)))
@@ -329,7 +337,7 @@ def generer_matrice_bibd_equilibre(
 
     for _ in range(nb_grilles):
         candidats = []
-        for _ in range(150):
+        for _ in range(80):  # Échantillon optimisé pour absorber 500 tirages
             ticket = sorted(random.sample(numeros, 10))
             paires_ticket = list(itertools.combinations(ticket, 2))
             score_penalite = sum(compteur_paires[p] for p in paires_ticket)
@@ -352,7 +360,7 @@ def generer_matrice_bibd_equilibre(
 # --- MIT ---
 def generer_grilles_esperance_mit(
     pool: List[int],
-    nb_grilles: int = 15,
+    nb_grilles: int = 500,
     seuil_anti_partage: bool = True,
     min_sum: int = 85,
     max_sum: int = 175,
@@ -364,7 +372,7 @@ def generer_grilles_esperance_mit(
     valides = []
     seen = set()
     attempts = 0
-    max_attempts = 40000
+    max_attempts = max(200000, nb_grilles * 800)
 
     while len(valides) < nb_grilles and attempts < max_attempts:
         attempts += 1
@@ -499,9 +507,10 @@ with tab1:
         )
         nb_grilles_demande = st.number_input(
             "Nombre de grilles à retenir",
-            value=20,
+            value=500,
             min_value=1,
             max_value=10000,
+            step=50,
             disabled=(mode_generation == "Tout générer"),
         )
 
@@ -651,11 +660,12 @@ with tab2:
             "Garantie mathématique visée", [6, 7, 8], index=2
         )
     with col_r3:
-        max_grilles_mandel = st.slider(
+        max_grilles_mandel = st.number_input(
             "Nombre max de grilles à générer :",
             min_value=5,
-            max_value=60,
-            value=20,
+            max_value=500,
+            value=500,
+            step=25,
         )
         forcer_decades_t2 = st.checkbox(
             "Forcer condition : ≥2 [1-9] et ≥2 [10-19]",
@@ -734,9 +744,10 @@ with tab3:
         )
         nb_grilles_dutel = st.number_input(
             "Nombre de grilles à générer :",
-            value=15,
+            value=500,
             min_value=1,
-            max_value=200,
+            max_value=1000,
+            step=50,
             key="nb_dutel",
         )
     with col_d2:
@@ -807,7 +818,7 @@ with tab3:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 4 : SYSTÈME DELTA (PLACÉ À CÔTÉ DE DUTEL)
+# ONGLET 4 : SYSTÈME DELTA
 # ------------------------------------------------------------------------------
 with tab4:
     st.header("Spectre d'Écart Réduit (Système Delta - Dave Blaschke)")
@@ -824,9 +835,10 @@ with tab4:
         )
         nb_grilles_delta = st.number_input(
             "Nombre de grilles :",
-            value=15,
+            value=500,
             min_value=1,
-            max_value=200,
+            max_value=1000,
+            step=50,
             key="nb_delta",
         )
 
@@ -916,7 +928,7 @@ with tab4:
 with tab5:
     st.header("Filtrage par Terminaisons (Dernier Chiffre / Modulo 10)")
     st.caption(
-        "Contrôle la diversité des unités (0 à 9). Évite le clonage artificiel (ex: 4 numéros finissant par le même chiffre)."
+        "Contrôle la diversité des unités (0 à 9). Évite le clonage artificiel."
     )
 
     col_term1, col_term2 = st.columns(2)
@@ -928,9 +940,10 @@ with tab5:
         )
         nb_grilles_term = st.number_input(
             "Nombre de grilles :",
-            value=15,
+            value=500,
             min_value=1,
-            max_value=200,
+            max_value=1000,
+            step=50,
             key="nb_term",
         )
 
@@ -962,7 +975,7 @@ with tab5:
                     nb_a_generer=nb_grilles_term,
                     min_uniques=range_uniques[0],
                     max_uniques=range_uniques[1],
-                    max_repetition=max_rep_term,
+                    max_repetition=max_repetition,
                 )
 
             if grilles_term:
@@ -992,7 +1005,7 @@ with tab5:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 6 : ARBITRAGE & ESPÉRANCE MULTI-RANGS (MODÈLE MIT / ROLL-DOWN)
+# ONGLET 6 : ARBITRAGE & ESPÉRANCE MULTI-RANGS (MODÈLE MIT)
 # ------------------------------------------------------------------------------
 with tab6:
     st.header("Optimisation d'Espérance Mathématique Complète (Modèle MIT)")
@@ -1035,9 +1048,10 @@ with tab6:
         )
         nb_grilles_mit = st.number_input(
             "Nombre de grilles :",
-            value=15,
+            value=500,
             min_value=1,
-            max_value=200,
+            max_value=1000,
+            step=50,
             key="nb_mit",
         )
     with col_m2:
@@ -1118,7 +1132,7 @@ with tab6:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 7 : SYMÉTRIE CENTRE / PÉRIPHÉRIE (AVANT-DERNIER)
+# ONGLET 7 : SYMÉTRIE CENTRE / PÉRIPHÉRIE
 # ------------------------------------------------------------------------------
 with tab7:
     st.header("Symétrie Centre / Périphérie (Distribution Quadratique)")
@@ -1135,9 +1149,10 @@ with tab7:
         )
         nb_grilles_cp = st.number_input(
             "Nombre de grilles :",
-            value=15,
+            value=500,
             min_value=1,
-            max_value=200,
+            max_value=1000,
+            step=50,
             key="nb_cp",
         )
 
@@ -1193,7 +1208,7 @@ with tab7:
                 )
 
 # ------------------------------------------------------------------------------
-# ONGLET 8 : MATRICES ÉQUILIBRÉES BIBD (DERNIER)
+# ONGLET 8 : MATRICES ÉQUILIBRÉES BIBD
 # ------------------------------------------------------------------------------
 with tab8:
     st.header("Matrices de Blocs Incomplets Équilibrés (BIBD)")
@@ -1209,8 +1224,12 @@ with tab8:
             key="pool_bibd_in",
         )
     with col_b2:
-        nb_grilles_bibd = st.slider(
-            "Nombre de blocs (grilles) :", min_value=5, max_value=50, value=20
+        nb_grilles_bibd = st.number_input(
+            "Nombre de blocs (grilles) :",
+            min_value=5,
+            max_value=500,
+            value=500,
+            step=25,
         )
 
     if st.button("Générer la Matrice Équilibrée BIBD", type="primary"):
